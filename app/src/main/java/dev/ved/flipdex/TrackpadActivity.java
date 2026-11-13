@@ -56,6 +56,9 @@ public class TrackpadActivity extends Activity {
     private TextView hint;
     private View controls;
     private CoverKeyboard keyboard;
+    private FrameLayout controlLayer;
+    private FrameLayout.LayoutParams keyboardLp, stripLp;
+    private int barH, gapPx;
     private ScrollView appsPanel;
     private LinearLayout appsGrid;
     private View scrollStrip;
@@ -133,6 +136,9 @@ public class TrackpadActivity extends Activity {
         layer.setMotionEventSplittingEnabled(true);
 
         int bar = dp(64), strip = dp(56), gap = dp(6);
+        barH = bar;
+        gapPx = gap;
+        controlLayer = layer;
 
         // Scroll strip: slide a finger up/down along the right edge.
         TextView scroll = label("⇕\n\nscroll");
@@ -140,6 +146,7 @@ public class TrackpadActivity extends Activity {
         scroll.setOnTouchListener((v, e) -> onStrip(e));
         FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(strip, -1, Gravity.END);
         sp.setMargins(0, gap, gap, bar + gap * 2);
+        stripLp = sp;
         layer.addView(scroll, sp);
         scrollStrip = scroll;
 
@@ -161,6 +168,7 @@ public class TrackpadActivity extends Activity {
         keyboard.setVisibility(View.GONE);
         FrameLayout.LayoutParams kp = new FrameLayout.LayoutParams(-1, -1);
         kp.setMargins(gap, gap, gap, bar + gap * 2);
+        keyboardLp = kp;
         layer.addView(keyboard, kp);
 
         // Open DeX apps, as big tiles; tap one to bring it forward on the DeX screen.
@@ -299,15 +307,54 @@ public class TrackpadActivity extends Activity {
         return t;
     }
 
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // Rotated, unfolded or moved to another screen: size the keyboard for the new space.
+        if (keyboard != null && keyboardUp()) controlLayer.post(() -> setKeyboard(true));
+    }
+
     private boolean keyboardUp() {
         return keyboard.getVisibility() == View.VISIBLE;
     }
 
+    /** Keyboard height on a tall screen (the main display): about a laptop keyboard. */
+    private static final int KEYBOARD_DP = 240;
+    /** Trackpad space that must stay above it; less than this and the keyboard fills the screen. */
+    private static final int MIN_PAD_DP = 220;
+
     private void setKeyboard(boolean up) {
         if (up && appsPanel.getVisibility() == View.VISIBLE) appsPanel.setVisibility(View.GONE);
+        boolean compact = up && layoutKeyboard();
         keyboard.setVisibility(up ? View.VISIBLE : View.GONE);
-        scrollStrip.setVisibility(up ? View.GONE : View.VISIBLE);
+        // On a tall screen the trackpad (and its scroll strip) stays usable above the keyboard;
+        // on the small cover screen the keyboard takes the whole space.
+        scrollStrip.setVisibility(up && !compact ? View.GONE : View.VISIBLE);
         if (up) showHint("");
+    }
+
+    /**
+     * Sizes the keyboard for the space this screen has. Returns true for the compact layout:
+     * a fixed-height keyboard at the bottom with the trackpad above it.
+     */
+    private boolean layoutKeyboard() {
+        int avail = controlLayer.getHeight() - barH - gapPx * 3;
+        boolean compact = avail - dp(KEYBOARD_DP) >= dp(MIN_PAD_DP);
+        int bottom = barH + gapPx * 2;
+        if (compact) {
+            keyboardLp.height = dp(KEYBOARD_DP);
+            keyboardLp.gravity = Gravity.BOTTOM;
+            keyboardLp.setMargins(gapPx, 0, gapPx, bottom);
+            stripLp.setMargins(0, gapPx, gapPx, bottom + dp(KEYBOARD_DP) + gapPx);
+        } else {
+            keyboardLp.height = FrameLayout.LayoutParams.MATCH_PARENT;
+            keyboardLp.gravity = Gravity.NO_GRAVITY;
+            keyboardLp.setMargins(gapPx, gapPx, gapPx, bottom);
+            stripLp.setMargins(0, gapPx, gapPx, bottom);
+        }
+        keyboard.setLayoutParams(keyboardLp);
+        scrollStrip.setLayoutParams(stripLp);
+        return compact;
     }
 
     private boolean onStrip(MotionEvent e) {

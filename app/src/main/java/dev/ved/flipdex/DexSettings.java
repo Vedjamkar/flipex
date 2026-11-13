@@ -172,7 +172,10 @@ public final class DexSettings {
 
     public static boolean restoreStock(Context c) {
         if (Shell.ready()) {  // monitors back to their own density
-            for (Display d : externalDisplays(c)) Shell.exec("wm density reset -d " + d.getDisplayId());
+            for (Display d : externalDisplays(c)) {
+                Shell.exec("wm density reset -d " + d.getDisplayId());
+                Shell.exec("wm size reset -d " + d.getDisplayId());
+            }
         }
         boolean features = !Shell.ready() || setDexFeatures(c, false);
         return setVirtualDisplay(c, false) & setDesktop(c, false) & features;

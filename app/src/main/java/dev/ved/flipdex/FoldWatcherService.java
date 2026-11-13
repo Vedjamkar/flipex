@@ -235,6 +235,17 @@ public class FoldWatcherService extends Service
         // density Android's navigation bar is taller than the DeX taskbar and its buttons poke out
         // above it; at DeX density the taskbar covers it exactly, as in real DeX.
         Shell.exec("wm density " + DexSettings.dexDensity(this) + " -d " + displayId);
+        // Like real DeX (Full HD by default): a 1440p/4K monitor would be tiny at DeX density, so
+        // its desktop is drawn at 1080 lines and scaled up. 1080p and smaller stay as they are.
+        Display shown = dm.getDisplay(displayId);
+        if (shown != null) {
+            Display.Mode m = shown.getMode();
+            int w = m.getPhysicalWidth(), h = m.getPhysicalHeight(), shortSide = Math.min(w, h);
+            if (shortSide > 1080) {
+                int sw = Math.round(w * 1080f / shortSide), sh = Math.round(h * 1080f / shortSide);
+                Shell.exec("wm size " + sw + "x" + sh + " -d " + displayId);
+            }
+        }
         String r = "";
         // A screen that has only just connected can refuse it ("false"); try for a few seconds.
         for (int i = 0; i < 8 && isDexMonitor(displayId); i++) {

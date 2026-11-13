@@ -47,6 +47,7 @@ Fold the phone and its cover screen becomes a trackpad and keyboard for the desk
 | **Mouse and keyboard** | USB or Bluetooth mice go to the monitor, not the phone |
 | **No giant phone keyboard** | The on-screen keyboard stays off the monitor; type on a real keyboard or the cover screen |
 | **Cover-screen trackpad** | Fold the phone: the cover screen becomes a trackpad with scrolling, gestures, left/right click, Back, a keyboard and an open-apps panel |
+| **Trackpad + keyboard on the main screen** | Or use the phone open, like a laptop deck: trackpad on top, keyboard below (FlipEx → **Trackpad on this screen**, then ⌨) |
 | **Lock screen cover** | Lock the phone and the monitor is covered until you unlock |
 | **DeX on a Mac** | Optional: DeX in a window on your Mac, over USB or Wi‑Fi, with copy‑paste of pictures and drag‑and‑drop of files |
 
@@ -202,7 +203,7 @@ All of it is undone by **Restore stock settings**.
 | `force_desktop_mode_on_external_displays`, `enable_freeform_support`, `enable_non_resizable_multi_window` | Android's own desktop mode on external screens (Developer options) |
 | `dex_on_external_display` | What real DeX sets: wallpaper and full DeX taskbar |
 | `taskbar_recent_apps_enabled`, `taskbar_max_recent_count` | Open apps on the DeX taskbar |
-| Per-monitor: system decorations, density 160 dpi, keyboard hidden | A real DeX desktop on the monitor; see [How it works](#how-it-works) |
+| Per-monitor: system decorations, density 160 dpi, Full HD size on bigger monitors, keyboard hidden | A real DeX desktop on the monitor; see [How it works](#how-it-works) |
 | Mouse ↔ monitor pairing | Mice move the pointer on the monitor |
 
 ## Troubleshooting
@@ -248,7 +249,9 @@ system APIs:
    starts Samsung's DeX home and wallpaper on it.
 3. **DeX density.** The monitor is set to 160 dpi, the density Samsung uses for DeX. At the
    monitor's native density, Android's navigation bar is taller than the DeX taskbar and its
-   buttons show above it. At 160 dpi the taskbar covers it exactly, as in real DeX.
+   buttons show above it. At 160 dpi the taskbar covers it exactly, as in real DeX. Monitors
+   bigger than 1080p are drawn at Full HD and scaled up, like DeX's default, so the desktop isn't
+   tiny on a 1440p or 4K screen.
 4. **DeX settings** that Samsung's launcher reads: `dex_on_external_display` and the taskbar's
    recent‑apps settings.
 5. **A desk** (Android 16 window shell) for screens that don't get one, so the taskbar can list
