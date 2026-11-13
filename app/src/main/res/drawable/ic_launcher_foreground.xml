@@ -1,0 +1,29 @@
+<!-- Launcher icon foreground (108dp adaptive canvas, art kept inside the 66dp safe zone):
+     a Galaxy Z Flip with a lit cover screen and a small desktop window on it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="15.6"
+        android:translateY="15.6"
+        android:scaleX="3.2"
+        android:scaleY="3.2">
+        <!-- body: top and bottom halves split by the hinge -->
+        <path
+            android:fillColor="#FFF4F6FB"
+            android:pathData="M9,2h6a2,2 0,0 1,2 2v7.2H7V4a2,2 0,0 1,2 -2z" />
+        <path
+            android:fillColor="#FFDCE3F0"
+            android:pathData="M7,12.8h10V20a2,2 0,0 1,-2 2H9a2,2 0,0 1,-2 -2z" />
+        <!-- cover screen -->
+        <path
+            android:fillColor="#FF3D8BFF"
+            android:pathData="M9.6,3.8h4.8a0.8,0.8 0,0 1,0.8 0.8v3.6a0.8,0.8 0,0 1,-0.8 0.8H9.6a0.8,0.8 0,0 1,-0.8 -0.8V4.6a0.8,0.8 0,0 1,0.8 -0.8z" />
+        <!-- a desktop window and taskbar on the cover screen -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M10.2,4.7h2.8v1.9h-2.8zM9.6,7.9h4.8v0.6H9.6z" />
+    </group>
+</vector>

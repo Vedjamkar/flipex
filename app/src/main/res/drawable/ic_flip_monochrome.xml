@@ -1,0 +1,4 @@
+<!-- Themed-icon layer: the FlipEx glyph on the 108dp adaptive canvas. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_flip"
+    android:inset="25dp" />

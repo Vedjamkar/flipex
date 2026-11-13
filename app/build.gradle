@@ -1,0 +1,29 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'dev.ved.flipdex'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'dev.ved.flipdex'
+        minSdk 31
+        targetSdk 36
+        versionCode 1
+        versionName '0.1'
+    }
+
+    buildFeatures { aidl true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    def shizuku = '13.1.5'
+    implementation "dev.rikka.shizuku:api:$shizuku"
+    implementation "dev.rikka.shizuku:provider:$shizuku"
+}
