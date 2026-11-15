@@ -185,6 +185,8 @@ public class FoldWatcherService extends Service
         }
         // 2. Own desktop for the monitor (also clears the old window-mode override). With it,
         //    Android starts the DeX home, wallpaper and taskbar by itself.
+        //    One UI 8.5+ doesn't retry on display changes, so the button tries again.
+        if (DexSettings.isOneUi85OrLater() && !hasHome(id)) ownDesktopGiven.remove(id);
         giveOwnDesktop(id);
         android.os.SystemClock.sleep(1500);
 
@@ -210,8 +212,13 @@ public class FoldWatcherService extends Service
             appendDiag("startDex(" + id + "): monitor still mirrors the phone after starting DeX");
             Log.w("FlipEx", "display " + id + " still mirrors after Start DeX");
             repinMice();
+            String hint = DexSettings.isOneUi85OrLater()
+                    ? "If Settings → Connected devices → Samsung DeX → Connected display offers Extend, "
+                            + "pick it and replug the monitor. "
+                    : "";
             return "Android kept " + d.getName() + " mirroring the phone, so DeX couldn't start. "
-                    + "The mouse stays on the phone. Please tap Share diagnostics and send the file.";
+                    + "The mouse stays on the phone. " + hint
+                    + "Please tap Share diagnostics and send the file.";
         }
 
         // 5. Everything else a monitor gets: desk (taskbar apps), no phone keyboard, mice.
@@ -257,6 +264,12 @@ public class FoldWatcherService extends Service
                 Shell.exec("wm size " + sw + "x" + sh + " -d " + displayId);
             }
         }
+        // One UI 8.5+ (Android 16 QPR2): Android itself decides mirror or desktop per monitor.
+        // One UI 8 and earlier never take this route.
+        if (DexSettings.isOneUi85OrLater()) {
+            giveOwnDesktopContentMode(displayId, "One UI " + DexSettings.oneUiName());
+            return;
+        }
         String r = "";
         // A screen that has only just connected can refuse it ("false"); try for a few seconds.
         for (int i = 0; i < 8 && isDexMonitor(displayId); i++) {
@@ -264,12 +277,59 @@ public class FoldWatcherService extends Service
             // was on the phone's screen and quit (no home, no wallpaper on the monitor).
             r = Shell.setSystemDecors(displayId, true);
             if (r.startsWith("system decors true")) break;
+            // This Android has no such call (Android 16 QPR2 and later, e.g. a phone whose One UI
+            // version couldn't be read): use the content-mode route instead of retrying something
+            // that can't work. Never happens on One UI 8, where the call exists.
+            if (r.startsWith("system decors unsupported")) {
+                giveOwnDesktopContentMode(displayId, "no setShouldShowSystemDecors");
+                return;
+            }
             android.os.SystemClock.sleep(600);
         }
         Shell.exec("wm set-display-windowing-mode -d " + displayId + " 0");
         Log.i("FlipEx", r);
         appendDiag("giveOwnDesktop(" + displayId + "): " + r);
         if (!r.startsWith("system decors true")) ownDesktopGiven.remove(displayId);  // retry on next change
+    }
+
+    /**
+     * One UI 8.5 / Android 16 QPR2 route. There, setShouldShowSystemDecors no longer exists (and
+     * would be undone anyway): the window manager gives a monitor its home, wallpaper and bars
+     * when the display "can host tasks", which DisplayManager sets from the secure setting
+     * mirror_built_in_display (1 = mirror the phone on every monitor, 0 = own desktop). So:
+     * try the old call once in case Samsung kept it, then make sure that setting says "own
+     * desktop", and wait for Android to put a home on the monitor. Runs on the bg thread, after
+     * the density/size step. Never toggles anything off and on again.
+     */
+    private void giveOwnDesktopContentMode(int displayId, String why) {
+        String decors = Shell.setSystemDecors(displayId, true);
+        String mirror = DexSettings.allowOwnDesktop(this);
+        Shell.exec("wm set-display-windowing-mode -d " + displayId + " 0");
+        boolean home = false;
+        for (int i = 0; i < 10 && isDexMonitor(displayId) && !(home = hasHome(displayId)); i++) {
+            android.os.SystemClock.sleep(600);
+        }
+        String state = displayContentState(displayId);
+        String r = "content mode (" + why + "): " + decors + "; " + mirror + "; " + state
+                + "; home " + (home ? "yes" : "no");
+        if (!home && state.contains("canHostTasks false") && !"1".equals(DexSettings.getMirrorSetting())) {
+            r += "; Android won't let this monitor host apps (mirror-only on this phone)";
+        }
+        Log.i("FlipEx", r);
+        appendDiag("giveOwnDesktop(" + displayId + "): " + r);
+        // No retry loop on display changes: our own density/size changes would re-trigger it.
+        // The Start DeX button tries again.
+    }
+
+    /**
+     * What DisplayManager says about a display on Android 16 QPR2: whether it can host tasks
+     * (own desktop) and whether it may switch between mirroring and its own content.
+     */
+    private static String displayContentState(int displayId) {
+        String out = Shell.exec("dumpsys display | grep -oE 'displayId " + displayId
+                + ",.*' | grep -oE 'canHostTasks (true|false)|FLAG_ALLOWS_CONTENT_MODE_SWITCH' | sort -u | tr '\\n' ' '");
+        if (out == null || out.trim().isEmpty()) return "canHostTasks n/a";
+        return out.trim();
     }
 
     /**

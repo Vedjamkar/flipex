@@ -325,14 +325,36 @@ public class ShellService extends IShellService.Stub {
                     .getMethod("getWindowManagerService").invoke(null);
             for (java.lang.reflect.Method m : wm.getClass().getMethods()) {
                 String n = m.getName();
-                if (n.contains("SystemDecor") || n.contains("ContentMode")) api.append(n).append(' ');
+                if (n.contains("SystemDecor") || n.contains("ContentMode") || n.contains("DesktopMode")) {
+                    api.append(n).append(' ');
+                }
             }
-            wm.getClass().getMethod("setShouldShowSystemDecors", int.class, boolean.class)
-                    .invoke(wm, displayId, show);
+            java.lang.reflect.Method set;
+            try {
+                set = wm.getClass().getMethod("setShouldShowSystemDecors", int.class, boolean.class);
+            } catch (NoSuchMethodException gone) {
+                // Android 16 QPR2 (One UI 8.5) removed it: the content mode follows the display's
+                // "can host tasks" state, set from Settings.Secure mirror_built_in_display.
+                return "system decors unsupported on " + displayId + eligible(wm, displayId)
+                        + " [" + api.toString().trim() + "]";
+            }
+            set.invoke(wm, displayId, show);
             Object now = wm.getClass().getMethod("shouldShowSystemDecors", int.class).invoke(wm, displayId);
-            return "system decors " + now + " on " + displayId;
+            return "system decors " + now + " on " + displayId + eligible(wm, displayId)
+                    + " [" + api.toString().trim() + "]";
         } catch (Throwable t) {
             return "system decors failed on " + displayId + ": " + cause(t) + " [" + api.toString().trim() + "]";
+        }
+    }
+
+    /** Android 16 QPR2's own verdict on whether the display gets a desktop ("" if it has no such call). */
+    private static String eligible(Object wm, int displayId) {
+        try {
+            Object decors = wm.getClass().getMethod("shouldShowSystemDecors", int.class).invoke(wm, displayId);
+            Object e = wm.getClass().getMethod("isEligibleForDesktopMode", int.class).invoke(wm, displayId);
+            return " (decors " + decors + ", desktop-eligible " + e + ")";
+        } catch (Throwable t) {
+            return "";
         }
     }
 

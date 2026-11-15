@@ -249,8 +249,12 @@ UI restarts. FlipEx repairs it within a few seconds; replugging the monitor also
   top, so some DeX extras (DeX-only settings, keyboard shortcuts tied to the DeX service) are
   missing.
 - **Tested on one phone so far** (Galaxy Z Flip 5, One UI 8). Reports from other Flips are welcome.
-- **One UI 8.5:** a tester on a Flip 5 with One UI 8.5 reports the monitor stays mirrored. Under
-  investigation; diagnostics from One UI 8.5 phones are especially welcome.
+- **One UI 8.5 (experimental):** One UI 8.5 is built on Android 16 QPR2, which dropped the call
+  FlipEx uses on One UI 8 to give a monitor its own desktop. There, Android decides mirror or
+  desktop from its *mirror built-in display* setting. From FlipEx 0.3.1, on One UI 8.5 it sets that setting to
+  "own desktop" if it was set to mirror, and puts it back when you turn off *DeX on monitors*.
+  One UI 8 and earlier work exactly as before. This hasn't been tested on a One UI 8.5 phone yet,
+  so if the monitor still mirrors, please send diagnostics.
 
 ## How it works
 

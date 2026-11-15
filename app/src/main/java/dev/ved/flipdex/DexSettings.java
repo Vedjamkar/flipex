@@ -81,7 +81,72 @@ public final class DexSettings {
         String v = on ? "1" : "0";
         boolean ok = put(c, FREEFORM, v) & put(c, FORCE_DESKTOP, v) & put(c, NON_RESIZABLE, v);
         c.getSharedPreferences(PREFS, 0).edit().putBoolean("desktop", on && ok).apply();
+        if (!on) restoreMirrorSetting(c);
         return ok;
+    }
+
+    /**
+     * One UI version as Samsung encodes it in ro.build.version.oneui (8.0 = 80000, 8.5 = 80500),
+     * or 0 on phones that aren't Samsung or don't say.
+     */
+    static int oneUiVersion() {
+        try {
+            String v = (String) Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class, String.class).invoke(null, "ro.build.version.oneui", "");
+            return v == null || v.isEmpty() ? 0 : Integer.parseInt(v.trim());
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** "8.5" style name for the diagnostics, or "not One UI". */
+    static String oneUiName() {
+        int v = oneUiVersion();
+        return v <= 0 ? "not One UI" : (v / 10000) + "." + (v / 100 % 100) + (v % 100 > 0 ? "." + v % 100 : "");
+    }
+
+    /**
+     * One UI 8.5 and later (Android 16 QPR2) decide mirror-or-desktop for each monitor themselves.
+     * Earlier One UI versions always use the original route (FlipEx sets system decorations).
+     */
+    static boolean isOneUi85OrLater() {
+        return oneUiVersion() >= 80500;
+    }
+
+    /**
+     * Android 16 QPR2's switch between mirroring the phone on every connected display (1) and giving
+     * each its own desktop (0, AOSP's default). Android watches it and applies it straight away.
+     */
+    static final String MIRROR_BUILT_IN = "mirror_built_in_display";
+    private static final String KEY_MIRROR_SAVED = "mirror_built_in_saved";
+
+    static String getMirrorSetting() {
+        String out = Shell.exec("settings get secure " + MIRROR_BUILT_IN);
+        return out == null ? "?" : out.trim();
+    }
+
+    /**
+     * Sets "own desktop" (0) if Android is set to mirror (1). The old value is saved and put back
+     * when DeX on monitors is turned off. Never switches it off and back on (a quick off/on
+     * made Samsung's DeX home quit in testing). Returns what it did, for the log.
+     */
+    static String allowOwnDesktop(Context c) {
+        String before = getMirrorSetting();
+        if (!"1".equals(before)) return MIRROR_BUILT_IN + "=" + before + " (left as is)";
+        android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
+        if (!p.contains(KEY_MIRROR_SAVED)) p.edit().putString(KEY_MIRROR_SAVED, before).apply();
+        Shell.exec("settings put secure " + MIRROR_BUILT_IN + " 0");
+        return MIRROR_BUILT_IN + " 1 -> " + getMirrorSetting();
+    }
+
+    /** Puts mirror_built_in_display back to what it was before FlipEx changed it (if it did). */
+    static void restoreMirrorSetting(Context c) {
+        android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
+        String saved = p.getString(KEY_MIRROR_SAVED, null);
+        if (saved == null || !Shell.ready()) return;
+        Shell.exec("null".equals(saved) ? "settings delete secure " + MIRROR_BUILT_IN
+                : "settings put secure " + MIRROR_BUILT_IN + " " + saved);
+        p.edit().remove(KEY_MIRROR_SAVED).apply();
     }
 
     public static boolean isVirtualDisplayOn(Context c) {

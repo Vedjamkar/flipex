@@ -30,7 +30,8 @@ final class Diagnostics {
     private static final String LOG_FILTER =
             "FlipEx|ShellDesktopMode|DesktopDisplay|DesktopMode|SecondaryLauncher|HoneySpace\\.Dex"
                     + "|Content Recording|Display added|Display removed|AndroidRuntime|FATAL"
-                    + "|dexservice|DeskTop|ContentMode|ExternalDisplay|desk";
+                    + "|dexservice|DeskTop|ContentMode|ExternalDisplay|desk"
+                    + "|LogicalDisplay|mirrorBuiltInDisplay|canHostTasks|ShouldShowSystemDecors";
 
     private Diagnostics() {
     }
@@ -45,7 +46,10 @@ final class Diagnostics {
                 .append("android=").append(Build.VERSION.RELEASE).append(" sdk=").append(Build.VERSION.SDK_INT)
                 .append(" incremental=").append(Build.VERSION.INCREMENTAL).append('\n')
                 .append("build=").append(Build.DISPLAY).append('\n')
-                .append("flipex=").append(version(c)).append('\n');
+                .append("flipex=").append(version(c)).append('\n')
+                .append("oneui=").append(DexSettings.oneUiName()).append(" (route: ")
+                .append(DexSettings.isOneUi85OrLater() ? "content mode, One UI 8.5+" : "system decors")
+                .append(")\n");
 
         section(r, "FlipEx state");
         r.append("shizukuRunning=").append(Shell.shizukuRunning())
@@ -76,7 +80,13 @@ final class Diagnostics {
                         + "'desktop|dex|freeform|multi_window|external_display|mirror|taskbar|screen_zoom"
                         + "|navigation_mode' | sed \"s/^/$ns: /\"; done", 12000);
         cmd(r, "Displays", "cmd display get-displays 2>&1 | head -40; "
-                + "dumpsys display | grep -E 'mBaseDisplayInfo|DisplayDeviceInfo\\{' | cut -c1-400", 30000);
+                + "dumpsys display | grep -E 'mBaseDisplayInfo|DisplayDeviceInfo\\{' | cut -c1-900", 40000);
+        cmd(r, "Mirror or own desktop (Android 16 QPR2)",
+                "echo mirror_built_in_display=$(settings get secure mirror_built_in_display); "
+                        + "echo include_default_display_in_topology=$(settings get secure include_default_display_in_topology); "
+                        + "dumpsys display | grep -iE 'mMirrorBuiltInDisplay|ContentModeManagement' | head -10; "
+                        + "dumpsys display | grep -oE 'displayId [0-9]+,|canHostTasks (true|false)"
+                        + "|FLAG_ALLOWS_CONTENT_MODE_SWITCH|FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS' | uniq | tr '\\n' ' '; echo", 6000);
         cmd(r, "Window manager per screen", "dumpsys window displays | grep -E "
                 + "'Display: mDisplayId|init=|mNavigationBar=|mBottomGestureHost|mWallpaperTarget' | head -60", 20000);
         cmd(r, "Windows (bars, homes, wallpapers)", "dumpsys window windows | grep -E "
