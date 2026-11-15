@@ -430,9 +430,14 @@ async fn start_dex(
         "--max-fps=30".into(),
         "--video-bit-rate=8M".into(),
         "--stay-awake".into(),
+        // Keeps the phone awake on battery too (--stay-awake only works while charging), so DeX
+        // doesn't freeze when the phone's own screen timeout runs out.
+        "--keep-active".into(),
         "--no-audio".into(),
     ];
     if dark {
+        // Powers off the phone's main screen; the other built-in screens (a Flip's cover
+        // screen) are switched off below once the DeX display is up.
         args.push("--turn-screen-off".into());
     }
     let mut child = command(&t, &scrcpy)
@@ -443,24 +448,46 @@ async fn start_dex(
         .spawn()
         .map_err(|e| format!("couldn't start scrcpy: {e}"))?;
 
-    // Tell the window when scrcpy ends, with its last error lines.
+    // Tell the window when scrcpy ends, with its last error lines. With the phone screen off,
+    // also switch off the phone's other built-in screens once scrcpy has turned off the main one,
+    // and give them back their normal state when the DeX window closes.
     let stderr = child.stderr.take();
     let handle = app.clone();
+    let (t3, s3) = (t.clone(), serial.clone());
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let mut tail: Vec<String> = Vec::new();
+        let mut panels_off = false;
         if let Some(err) = stderr {
             for line in BufReader::new(err).lines().map_while(Result::ok) {
+                if dark && !panels_off && line.contains("display turned off") {
+                    panels_off = true;
+                    let (t4, s4) = (t3.clone(), s3.clone());
+                    std::thread::spawn(move || builtin_screens(&t4, &s4, "power-off"));
+                }
                 tail.push(line);
                 if tail.len() > 6 {
                     tail.remove(0);
                 }
             }
         }
+        if panels_off {
+            builtin_screens(&t3, &s3, "power-reset");
+        }
         let _ = handle.emit("dex-ended", tail.join("\n"));
     });
     *state.dex.lock().unwrap() = Some(child);
     Ok("DeX window opening…".into())
+}
+
+/// Runs `cmd display power-off|power-reset` (Android 16) on every built-in screen of the phone:
+/// a Flip's cover screen stays on otherwise, kept lit by --keep-active. Older Android versions
+/// don't have the command; that's harmless.
+fn builtin_screens(t: &Tools, serial: &str, action: &str) {
+    let script = format!(
+        "for id in $(dumpsys display | grep -E 'mBaseDisplayInfo=' | grep 'type INTERNAL' | grep -oE 'displayId [0-9]+' | cut -d' ' -f2 | sort -u); do cmd display {action} $id; done"
+    );
+    let _ = adb_on(t, serial, &["shell", &script]);
 }
 
 #[tauri::command]
