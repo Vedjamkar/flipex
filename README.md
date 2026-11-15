@@ -106,6 +106,13 @@ or, from this repository, `scripts/dex-on-mac.sh --shizuku` (macOS/Linux).
 Download the latest `FlipEx.apk` from [Releases](../../releases) and open it on the phone. Android
 will ask you to allow installs from your browser or file manager the first time.
 
+> **Coming from 0.1.0 or 0.2.0?** Those were signed with a development key. From 0.3.0 FlipEx is
+> signed with its release key, so **uninstall the old version first** (Android won't install over
+> it). You'll need to allow *Display over other apps* and *Connect Shizuku* again.
+>
+> Release key SHA‑256 fingerprint:
+> `E5:9B:0A:4B:1A:1D:C7:26:AE:32:76:30:AA:21:4F:36:5C:DD:4D:BD:A5:1C:FD:71:EF:05:EA:A6:D6:3A:04:D5`
+
 ### 4. First run
 
 Open **FlipEx**. A **Setup** card lists anything still missing:
@@ -208,8 +215,15 @@ All of it is undone by **Restore stock settings**.
 
 ## Troubleshooting
 
-**The monitor shows a mirror of the phone.** Tap **Start DeX on the monitor** in FlipEx. If
-nothing changes, check that Shizuku is running and the Setup card in FlipEx is gone.
+**Reporting a problem.** In FlipEx tap **More → Share diagnostics**. With the monitor plugged in, it
+saves a text file in *Download* with your phone and One UI version, FlipEx's settings, the connected
+screens and recent log lines about desktop mode and DeX. Look through it, then attach it to a
+[GitHub issue](../../issues).
+
+**The monitor shows a mirror of the phone.** Tap **Start DeX on the monitor** in FlipEx. If it says
+Android kept the monitor mirroring, check that Shizuku is running and the Setup card is gone, then
+send diagnostics. While a monitor mirrors, FlipEx leaves the mouse on the phone, so the mirror stays
+usable as a remote control.
 
 **Android asks to choose between *One UI Home* and *System UI*.** Pick **One UI Home → Always**.
 *System UI* is the cover screen's home and doesn't work on a monitor.
@@ -235,6 +249,8 @@ UI restarts. FlipEx repairs it within a few seconds; replugging the monitor also
   top, so some DeX extras (DeX-only settings, keyboard shortcuts tied to the DeX service) are
   missing.
 - **Tested on one phone so far** (Galaxy Z Flip 5, One UI 8). Reports from other Flips are welcome.
+- **One UI 8.5:** a tester on a Flip 5 with One UI 8.5 reports the monitor stays mirrored. Under
+  investigation; diagnostics from One UI 8.5 phones are especially welcome.
 
 ## How it works
 

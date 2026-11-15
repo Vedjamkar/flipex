@@ -136,6 +136,27 @@ public class MainActivity extends Activity implements Shell.Listener {
 
         LinearLayout more = card(col);
         text(more, "More", 16);
+        button(more, "Share diagnostics (if FlipEx doesn't work)", v -> new AlertDialog.Builder(this)
+                .setTitle("Share diagnostics?")
+                .setMessage("Saves a text file in Download with your phone and One UI version, "
+                        + "FlipEx's settings, the connected screens and recent system log lines about "
+                        + "desktop mode and DeX, then opens the share sheet. Plug in the monitor "
+                        + "first if that's what isn't working. Look through the file before sending.")
+                .setPositiveButton("Collect", (d, w) -> {
+                    Toast.makeText(this, "Collecting… (a few seconds)", Toast.LENGTH_SHORT).show();
+                    bg.execute(() -> {
+                        String report = Diagnostics.collect(this);
+                        ui.post(() -> {
+                            try {
+                                Diagnostics.share(this, report);
+                            } catch (Exception e) {
+                                Toast.makeText(this, "Couldn't save diagnostics: " + e.getMessage(),
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        });
+                    });
+                })
+                .setNegativeButton("Cancel", null).show());
         button(more, "DeX on a Mac (scrcpy)", v -> new AlertDialog.Builder(this)
                 .setTitle("DeX on a Mac").setMessage(SCRCPY_HINT)
                 .setPositiveButton("OK", null).show());

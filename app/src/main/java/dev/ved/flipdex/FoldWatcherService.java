@@ -203,13 +203,24 @@ public class FoldWatcherService extends Service
             Log.i("FlipEx", "display " + id + " has its own desktop");
         }
 
-        // 4. Everything else a monitor gets: desk (taskbar apps), no phone keyboard, mice.
+        // 4. Did it work? On some One UI versions Android keeps the monitor mirrored. Then say
+        //    so, and leave the mouse on the phone so the mirror stays usable.
+        android.os.SystemClock.sleep(2000);
+        if (!hasHome(id)) {
+            appendDiag("startDex(" + id + "): monitor still mirrors the phone after starting DeX");
+            Log.w("FlipEx", "display " + id + " still mirrors after Start DeX");
+            repinMice();
+            return "Android kept " + d.getName() + " mirroring the phone, so DeX couldn't start. "
+                    + "The mouse stays on the phone. Please tap Share diagnostics and send the file.";
+        }
+
+        // 5. Everything else a monitor gets: desk (taskbar apps), no phone keyboard, mice.
         imeHidden.remove(id);
         handler.postDelayed(() -> {
             hideImeOnDex();
             ensureDesks();
             repinMice();
-        }, 1500);
+        }, 500);
         return "DeX started on " + d.getName() + ".";
     }
 
@@ -619,6 +630,11 @@ public class FoldWatcherService extends Service
             if (!Shell.ready() || locked) return;
             List<Display> ext = DexSettings.externalDisplays(this);
             int target = ext.isEmpty() ? -1 : ext.get(ext.size() - 1).getDisplayId();
+            // Only onto a monitor that shows its own desktop. A monitor that mirrors the phone
+            // has no windows of its own: a mouse pinned there clicks into nothing, which locks
+            // out anyone controlling the phone through the mirror (e.g. a broken inner screen).
+            if (target >= 0 && !hasHome(target)) target = -1;
+            if (target == pinnedTo) return;
             if (target < 0 && pinnedTo < 0) return;
             Log.i("FlipEx", "pinMice(" + target + "): " + Shell.pinMice(target));
             pinnedTo = target;
@@ -678,6 +694,9 @@ public class FoldWatcherService extends Service
 
     @Override
     public void onDisplayAdded(int displayId) {
+        // The DeX home appears a moment after connecting; move the mouse over once it has.
+        handler.postDelayed(this::repinMice, 2500);
+        handler.postDelayed(this::repinMice, 7000);
         // First, before anything else: make Android give the monitor its own desktop (home,
         // wallpaper, taskbar) instead of mirroring the phone. Android saves this per monitor, and
         // a saved "mirror" for this monitor is what broke HDMI DeX after it had worked.
