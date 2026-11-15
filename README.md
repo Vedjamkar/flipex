@@ -56,6 +56,10 @@ Fold the phone and its cover screen becomes a trackpad and keyboard for the desk
 
 - **A Galaxy Z Flip on One UI 8 / Android 16.** Developed and tested on the **Galaxy Z Flip 5**
   (SM‑F731N). Other Flips on One UI 8 should work but are untested; please report back.
+  - **Other Galaxy phones on One UI 8** can work too: the **Galaxy M35** (SM‑M356B), which has no
+    DeX of its own, runs the full DeX desktop in a [window on a Mac or PC](#dex-on-a-mac-or-windows-pc).
+    Whether a phone can use a wired monitor depends on its USB‑C port having video out, which
+    many non-flagship models don't.
 - **A USB‑C hub, dock or cable with HDMI or DisplayPort**, and a monitor or TV.
 - **A mouse** (USB or Bluetooth), or the cover-screen trackpad.
 - **[Shizuku](https://shizuku.rikka.app/)**, free. It gives FlipEx the same access a computer's ADB
@@ -286,7 +290,7 @@ UI restarts. FlipEx repairs it within a few seconds; replugging the monitor also
 - **This isn't Samsung's DeX service.** It's Android's desktop mode with Samsung's DeX launcher on
   top, so some DeX extras (DeX-only settings, keyboard shortcuts tied to the DeX service) are
   missing.
-- **Tested on one phone so far** (Galaxy Z Flip 5, One UI 8). Reports from other Flips are welcome.
+- **Tested on two phones so far:** Galaxy Z Flip 5 (monitor and PC window) and Galaxy M35 (PC window), both on One UI 8. Reports from other phones are welcome.
 - **One UI 8.5 (experimental):** One UI 8.5 is built on Android 16 QPR2, which dropped the call
   FlipEx uses on One UI 8 to give a monitor its own desktop. There, Android decides mirror or
   desktop from its *mirror built-in display* setting. From FlipEx 0.3.1, on One UI 8.5 it sets that setting to
