@@ -1,0 +1,26 @@
+[package]
+name = "flipex-desktop"
+version = "0.3.1"
+description = "FlipEx for Mac and Windows"
+edition = "2021"
+publish = false
+
+[lib]
+name = "flipex_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rand = "0.8"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,83 @@
+# FlipEx for Mac and Windows. On a published FlipEx release (v*), builds the desktop app and
+# attaches it to that same release (a separate release would become "latest" and the phone's
+# updater looks there for the APK). Run it by hand to get test builds as workflow artifacts.
+name: Desktop app
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            scrcpy: macos-aarch64
+            target: aarch64-apple-darwin
+            asset: FlipEx-Desktop-mac-AppleSilicon.zip
+          - os: macos-latest
+            scrcpy: macos-x86_64
+            target: x86_64-apple-darwin
+            asset: FlipEx-Desktop-mac-Intel.zip
+          - os: windows-latest
+            scrcpy: win64
+            target: x86_64-pc-windows-msvc
+            asset: FlipEx-Desktop-Windows-setup.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Rust
+        run: rustup target add ${{ matrix.target }}
+
+      - name: scrcpy and adb (pinned, checksum-verified)
+        run: scripts/fetch-scrcpy.sh ${{ matrix.scrcpy }}
+
+      - name: Build
+        run: |
+          npm ci
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            npx tauri build --target ${{ matrix.target }} --bundles app
+          else
+            npx tauri build --target ${{ matrix.target }} --bundles nsis
+          fi
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          app=$(ls -d src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app)
+          # Ad-hoc sign everything inside, bundled scrcpy and adb included (Apple Silicon won't
+          # run unsigned code). Not notarized: first launch is right-click → Open.
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/${{ matrix.asset }}"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: cp src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe "$RUNNER_TEMP/${{ matrix.asset }}"
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "$RUNNER_TEMP/${{ matrix.asset }}" --clobber
+
+      - name: Test build artifact
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ runner.temp }}/${{ matrix.asset }}

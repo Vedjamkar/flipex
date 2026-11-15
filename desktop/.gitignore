@@ -1,0 +1,6 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+# scrcpy and adb are downloaded at build time (scripts/fetch-scrcpy.*), never committed.
+src-tauri/resources/scrcpy/*
+!src-tauri/resources/scrcpy/.keep

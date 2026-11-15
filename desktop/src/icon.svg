@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="1024" height="1024">
+  <!-- FlipEx app icon: the Android launcher art on its navy background. -->
+  <rect width="108" height="108" rx="24" fill="#15203A"/>
+  <g transform="translate(15.6 15.6) scale(3.2)">
+    <path fill="#F4F6FB" d="M9,2h6a2,2 0,0 1,2 2v7.2H7V4a2,2 0,0 1,2 -2z"/>
+    <path fill="#DCE3F0" d="M7,12.8h10V20a2,2 0,0 1,-2 2H9a2,2 0,0 1,-2 -2z"/>
+    <path fill="#3D8BFF" d="M9.6,3.8h4.8a0.8,0.8 0,0 1,0.8 0.8v3.6a0.8,0.8 0,0 1,-0.8 0.8H9.6a0.8,0.8 0,0 1,-0.8 -0.8V4.6a0.8,0.8 0,0 1,0.8 -0.8z"/>
+    <path fill="#FFFFFF" d="M10.2,4.7h2.8v1.9h-2.8zM9.6,7.9h4.8v0.6H9.6z"/>
+  </g>
+</svg>

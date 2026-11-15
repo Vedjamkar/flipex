@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlipEx</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <img src="icon.svg" alt="" width="40" height="40">
+    <div>
+      <h1>FlipEx</h1>
+      <p class="sub">Samsung DeX from your Galaxy Z Flip</p>
+    </div>
+  </header>
+
+  <section class="card" id="phone-card">
+    <div class="row">
+      <span class="dot" id="dot"></span>
+      <div class="grow">
+        <div class="title" id="phone-title">Looking for your phone…</div>
+        <div class="sub" id="phone-sub"></div>
+      </div>
+      <select id="device" hidden></select>
+    </div>
+    <button class="primary" id="dex" disabled>Start DeX</button>
+  </section>
+
+  <h2>Options</h2>
+  <section class="card list">
+    <label class="item">
+      <div class="grow"><div>Window size</div><div class="sub">The DeX desktop's resolution</div></div>
+      <select id="size">
+        <option value="1920x1080/160">1080p</option>
+        <option value="2560x1440/200">1440p</option>
+        <option value="1280x720/120">720p</option>
+      </select>
+    </label>
+    <label class="item">
+      <div class="grow"><div>Turn the phone screen off</div><div class="sub">DeX keeps running in the window</div></div>
+      <input type="checkbox" id="dark" class="switch">
+    </label>
+  </section>
+
+  <h2>Wi-Fi</h2>
+  <section class="card list">
+    <div id="nearby"></div>
+    <button class="item link" id="pair-open">Pair a new phone over Wi-Fi</button>
+    <div id="pair" hidden>
+      <div class="tabs">
+        <button class="tab on" data-tab="qr">QR code</button>
+        <button class="tab" data-tab="code">Pairing code</button>
+      </div>
+      <div id="tab-qr" class="pane">
+        <p class="sub">On the phone: Settings → Developer options → Wireless debugging →
+          <b>Pair device with QR code</b>, then scan this. Same Wi-Fi as this computer.</p>
+        <div id="qr" class="qr"></div>
+        <p class="sub center" id="qr-state">Waiting for the phone…</p>
+      </div>
+      <div id="tab-code" class="pane" hidden>
+        <p class="sub">On the phone: Wireless debugging → <b>Pair device with pairing code</b>.
+          Enter the IP address &amp; port and the code it shows.</p>
+        <input id="pair-addr" placeholder="192.168.1.20:37123" autocomplete="off">
+        <input id="pair-code" placeholder="6-digit code" inputmode="numeric" autocomplete="off">
+        <button class="secondary" id="pair-go">Pair</button>
+      </div>
+    </div>
+  </section>
+
+  <h2>Phone</h2>
+  <section class="card list">
+    <button class="item link" id="shizuku">Start Shizuku <span class="sub">after the phone restarts</span></button>
+    <button class="item link danger" id="restore">Restore phone's desktop settings</button>
+  </section>
+
+  <p class="foot sub" id="tools"></p>
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="main.js"></script>
+</body>
+</html>

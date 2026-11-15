@@ -27,8 +27,9 @@ Fold the phone and its cover screen becomes a trackpad and keyboard for the desk
   - [4. First run](#4-first-run)
   - [5. Cover-screen trackpad (optional)](#5-cover-screen-trackpad-optional)
 - [Using FlipEx](#using-flipex)
+- [Updates](#updates)
 - [After a restart](#after-a-restart)
-- [DeX on a Mac (scrcpy)](#dex-on-a-mac-scrcpy)
+- [DeX on a Mac or Windows PC](#dex-on-a-mac-or-windows-pc)
 - [What FlipEx changes](#what-flipex-changes)
 - [Troubleshooting](#troubleshooting)
 - [Known limitations](#known-limitations)
@@ -49,7 +50,7 @@ Fold the phone and its cover screen becomes a trackpad and keyboard for the desk
 | **Cover-screen trackpad** | Fold the phone: the cover screen becomes a trackpad with scrolling, gestures, left/right click, Back, a keyboard and an open-apps panel |
 | **Trackpad + keyboard on the main screen** | Or use the phone open, like a laptop deck: trackpad on top, keyboard below (FlipEx → **Trackpad on this screen**, then ⌨) |
 | **Lock screen cover** | Lock the phone and the monitor is covered until you unlock |
-| **DeX on a Mac** | Optional: DeX in a window on your Mac, over USB or Wi‑Fi, with copy‑paste of pictures and drag‑and‑drop of files |
+| **DeX on a Mac or PC** | Optional: the FlipEx desktop app opens DeX in a window on your Mac or Windows PC, over USB or Wi‑Fi |
 
 ## Requirements
 
@@ -167,6 +168,20 @@ FlipEx.
 - **Dim phone screen**: turns the phone's own screen into a black trackpad while DeX keeps running.
 - **Restore stock settings**: stops FlipEx and puts every setting it changed back.
 
+## Updates
+
+FlipEx checks its GitHub releases about once a day. When there's a new version, an **Update**
+card appears at the top: tap it once and FlipEx downloads the update, checks it against GitHub's
+published SHA‑256 and FlipEx's signing key, and installs it (through Shizuku, with no prompt;
+without Shizuku, Android asks you to confirm). FlipEx never installs on its own, because an
+install restarts it and closes the cover‑screen trackpad. **More → Check for updates** checks
+right away.
+
+This is the only thing FlipEx uses the internet for. It only talks to GitHub.
+
+Updates only work between copies signed with the same key. A test build, or a 0.1/0.2
+release, needs one manual uninstall and reinstall of the latest release first.
+
 ## After a restart
 
 Android turns Wireless debugging off when the phone restarts, which stops Shizuku. To start it
@@ -177,9 +192,31 @@ again:
    again.
 3. Open **FlipEx** once.
 
-## DeX on a Mac (scrcpy)
+## DeX on a Mac or Windows PC
 
-You can also run DeX in a window on a Mac, with no monitor. You need
+You can also run DeX in a window on a computer, with no monitor. Download **FlipEx Desktop** from
+[Releases](../../releases): `FlipEx-Desktop-mac-AppleSilicon.zip`, `FlipEx-Desktop-mac-Intel.zip`
+or `FlipEx-Desktop-Windows-setup.exe`. It's a small window that finds your phone and opens DeX:
+
+1. **Connect the phone.** Over USB (USB debugging on, tap *Allow* on the phone) or Wi‑Fi: in
+   FlipEx Desktop choose **Pair a new phone over Wi‑Fi** and scan the QR code from the phone's
+   *Developer options → Wireless debugging → Pair device with QR code* (or type the pairing code).
+   You pair once; after that the phone shows up under **Wi‑Fi** with a **Connect** button.
+2. **Start DeX.** The DeX desktop opens in its own window. Pick the window size, and optionally
+   turn the phone's screen off while it runs.
+3. **Start Shizuku** from the same window after the phone restarts.
+
+scrcpy and adb are built in, so there's nothing else to install. The app uses its own adb server
+(port 5038), so it doesn't disturb Android Studio or another adb.
+
+- **macOS:** the app isn't notarized. The first time, right‑click it → **Open** → **Open**. Allow
+  *Local Network* access when asked; that's how it finds the phone on Wi‑Fi.
+- **Windows:** SmartScreen may warn about an unknown publisher (**More info → Run anyway**). Over
+  USB, Windows may need Samsung's USB driver; Wi‑Fi works without it.
+
+### Mac script (picture paste)
+
+The older Mac script does the same from a terminal, plus copy‑paste of pictures. It needs
 [scrcpy](https://github.com/Genymobile/scrcpy) and `adb` (`brew install scrcpy android-platform-tools`).
 
 ```bash
@@ -212,6 +249,7 @@ All of it is undone by **Restore stock settings**.
 | `taskbar_recent_apps_enabled`, `taskbar_max_recent_count` | Open apps on the DeX taskbar |
 | Per-monitor: system decorations, density 160 dpi, Full HD size on bigger monitors, keyboard hidden | A real DeX desktop on the monitor; see [How it works](#how-it-works) |
 | Mouse ↔ monitor pairing | Mice move the pointer on the monitor |
+| `mirror_built_in_display` (One UI 8.5 only) | Set to "own desktop" if it was set to mirror, the same as choosing *Extend* in Samsung's Connected display settings; put back when you turn DeX on monitors off |
 
 ## Troubleshooting
 
@@ -292,3 +330,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The package name is `dev.ved.flipdex`.
+
+**FlipEx Desktop** (`desktop/`, Tauri 2) needs Rust and Node.js:
+
+```bash
+cd desktop
+npm ci
+scripts/fetch-scrcpy.sh        # pinned scrcpy + adb for this Mac, checksum-verified (win64 for Windows)
+npx tauri build --bundles app  # or: npx tauri dev
+```
+
+GitHub Actions builds the Mac (Apple Silicon and Intel) and Windows versions and attaches them to
+each published release (`.github/workflows/desktop.yml`).
