@@ -48,7 +48,8 @@ final class Diagnostics {
                 .append("build=").append(Build.DISPLAY).append('\n')
                 .append("flipex=").append(version(c)).append('\n')
                 .append("oneui=").append(DexSettings.oneUiName()).append(" (route: ")
-                .append(DexSettings.isOneUi85OrLater() ? "content mode, One UI 8.5+" : "system decors")
+                .append(DexSettings.useContentModeRoute(c) ? "content mode" : "system decors")
+                .append(DexSettings.isContentModeRouteAuto(c) ? ", auto" : ", set by the user")
                 .append(")\n");
 
         section(r, "FlipEx state");

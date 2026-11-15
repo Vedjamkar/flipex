@@ -114,6 +114,29 @@ public final class DexSettings {
     }
 
     /**
+     * Experimental One UI 8.5 route (Android's Mirror/Extend setting instead of the window
+     * manager call). Auto by default: on for One UI 8.5 and later. The switch on the main screen
+     * stores the user's own choice; Restore stock settings returns it to auto.
+     */
+    private static final String KEY_CONTENT_MODE_ROUTE = "content_mode_route";
+
+    static boolean useContentModeRoute(Context c) {
+        android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
+        return p.contains(KEY_CONTENT_MODE_ROUTE) ? p.getBoolean(KEY_CONTENT_MODE_ROUTE, false)
+                : isOneUi85OrLater();
+    }
+
+    static boolean isContentModeRouteAuto(Context c) {
+        return !c.getSharedPreferences(PREFS, 0).contains(KEY_CONTENT_MODE_ROUTE);
+    }
+
+    /** Saves the user's choice. Turning it off puts the Mirror/Extend setting back if FlipEx changed it. */
+    static void setContentModeRoute(Context c, boolean on) {
+        c.getSharedPreferences(PREFS, 0).edit().putBoolean(KEY_CONTENT_MODE_ROUTE, on).apply();
+        if (!on) restoreMirrorSetting(c);
+    }
+
+    /**
      * Android 16 QPR2's switch between mirroring the phone on every connected display (1) and giving
      * each its own desktop (0, AOSP's default). Android watches it and applies it straight away.
      */
@@ -243,6 +266,7 @@ public final class DexSettings {
             }
         }
         boolean features = !Shell.ready() || setDexFeatures(c, false);
+        c.getSharedPreferences(PREFS, 0).edit().remove(KEY_CONTENT_MODE_ROUTE).apply();  // back to auto
         return setVirtualDisplay(c, false) & setDesktop(c, false) & features;
     }
 

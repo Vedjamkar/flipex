@@ -186,7 +186,7 @@ public class FoldWatcherService extends Service
         // 2. Own desktop for the monitor (also clears the old window-mode override). With it,
         //    Android starts the DeX home, wallpaper and taskbar by itself.
         //    One UI 8.5+ doesn't retry on display changes, so the button tries again.
-        if (DexSettings.isOneUi85OrLater() && !hasHome(id)) ownDesktopGiven.remove(id);
+        if (DexSettings.useContentModeRoute(this) && !hasHome(id)) ownDesktopGiven.remove(id);
         giveOwnDesktop(id);
         android.os.SystemClock.sleep(1500);
 
@@ -212,7 +212,7 @@ public class FoldWatcherService extends Service
             appendDiag("startDex(" + id + "): monitor still mirrors the phone after starting DeX");
             Log.w("FlipEx", "display " + id + " still mirrors after Start DeX");
             repinMice();
-            String hint = DexSettings.isOneUi85OrLater()
+            String hint = DexSettings.useContentModeRoute(this)
                     ? "If Settings → Connected devices → Samsung DeX → Connected display offers Extend, "
                             + "pick it and replug the monitor. "
                     : "";
@@ -265,9 +265,10 @@ public class FoldWatcherService extends Service
             }
         }
         // One UI 8.5+ (Android 16 QPR2): Android itself decides mirror or desktop per monitor.
-        // One UI 8 and earlier never take this route.
-        if (DexSettings.isOneUi85OrLater()) {
-            giveOwnDesktopContentMode(displayId, "One UI " + DexSettings.oneUiName());
+        // Auto: only One UI 8.5 and later take this route; the experimental switch overrides it.
+        if (DexSettings.useContentModeRoute(this)) {
+            giveOwnDesktopContentMode(displayId, "One UI " + DexSettings.oneUiName()
+                    + (DexSettings.isContentModeRouteAuto(this) ? ", auto" : ", switched on by the user"));
             return;
         }
         String r = "";

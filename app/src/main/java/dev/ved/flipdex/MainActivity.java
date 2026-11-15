@@ -53,7 +53,8 @@ public class MainActivity extends Activity implements Shell.Listener {
     private LinearLayout setupCard;
     private TextView setupText, statusTitle, statusDetail, hapticsValue;
     private View statusDot, startBtn, overlayRow, shizukuRow;
-    private Switch desktopSw, sessionSw, featuresSw, stripSw, overlayDisplaySw;
+    private Switch desktopSw, sessionSw, featuresSw, stripSw, overlayDisplaySw, contentModeSw;
+    private TextView contentModeSummary;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -168,6 +169,16 @@ public class MainActivity extends Activity implements Shell.Listener {
         divider(pads);
         actionRow(pads, "Dim phone screen", "DeX keeps running on the monitor", colText, v ->
                 TrackpadActivity.launch(this, Display.DEFAULT_DISPLAY, true));
+
+        LinearLayout lab = section(col, "Experimental");
+        contentModeSw = toggleRow(lab, "One UI 8.5 method",
+                "", (b, on) -> runBg(() -> {
+                    DexSettings.setContentModeRoute(this, on);
+                    return on ? "One UI 8.5 method on. Replug the monitor or tap Start DeX."
+                            : "One UI 8.5 method off.";
+                }));
+        contentModeSummary = (TextView) ((LinearLayout) ((LinearLayout) contentModeSw.getParent())
+                .getChildAt(0)).getChildAt(1);
 
         LinearLayout more = section(col, "More");
         actionRow(more, "Share diagnostics", "If FlipEx doesn't work on your phone", colText,
@@ -303,6 +314,12 @@ public class MainActivity extends Activity implements Shell.Listener {
                 set(featuresSw, DexSettings.isDexFeaturesOn(this));
                 set(stripSw, DexSettings.isStripOn(this));
                 set(overlayDisplaySw, overlayDisplay);
+                set(contentModeSw, DexSettings.useContentModeRoute(this));
+                contentModeSummary.setText("Uses Android's Mirror/Extend setting to give the monitor "
+                        + "its own desktop. "
+                        + (DexSettings.isContentModeRouteAuto(this)
+                        ? "Automatic: on for One UI 8.5 and later (this phone: " + DexSettings.oneUiName() + ")."
+                        : "Set by you (this phone: " + DexSettings.oneUiName() + "). Restore stock settings returns it to automatic."));
                 enableRow(featuresSw, shell);
                 hapticsValue.setText(Haptics.name(Haptics.getLevel(this)));
             });
