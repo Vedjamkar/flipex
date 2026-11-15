@@ -34,6 +34,8 @@ struct AppState {
     /// phone is switching wireless debugging on), and only a server restart brings it back.
     quiet_since: Mutex<Option<Instant>>,
     last_restart: Mutex<Option<Instant>>,
+    /// Last Wi-Fi address (ip:port) a phone was connected at; also kept in the app's data folder.
+    last_addr: Mutex<Option<String>>,
 }
 
 /// How long nothing is found before the bundled adb server is restarted, and how often at most.
@@ -189,6 +191,38 @@ fn mdns(t: &Tools) -> Vec<(String, String, String)> {
         .collect()
 }
 
+/// Where the last working Wi-Fi address is kept between launches.
+fn last_addr_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("last-phone-address"))
+}
+
+fn load_last_addr(app: &AppHandle, state: &AppState) -> Option<String> {
+    let mut cur = state.last_addr.lock().unwrap();
+    if cur.is_none() {
+        *cur = last_addr_file(app)
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+    }
+    cur.clone()
+}
+
+fn save_last_addr(app: &AppHandle, state: &AppState, addr: &str) {
+    let mut cur = state.last_addr.lock().unwrap();
+    if cur.as_deref() == Some(addr) {
+        return;
+    }
+    *cur = Some(addr.to_string());
+    if let Some(f) = last_addr_file(app) {
+        let _ = std::fs::create_dir_all(f.parent().unwrap());
+        let _ = std::fs::write(f, addr);
+    }
+}
+
+fn is_addr(s: &str) -> bool {
+    s.contains(':') && s.split(':').next().map_or(false, |ip| ip.parse::<std::net::IpAddr>().is_ok())
+}
+
 #[tauri::command]
 async fn status(app: AppHandle, state: State<'_, AppState>) -> Result<Status, String> {
     let t = tools(&app, &state);
@@ -203,7 +237,7 @@ async fn status(app: AppHandle, state: State<'_, AppState>) -> Result<Status, St
         }
     };
     let t2 = t.clone();
-    let (devices, nearby, pairing) = tauri::async_runtime::spawn_blocking(move || {
+    let (devices, nearby, pairing, ready_addr) = tauri::async_runtime::spawn_blocking(move || {
         let services = mdns(&t2);
         let mut devs = devices(&t2);
         // One phone can be listed twice: by its Wi-Fi name and by its address. Keep the name.
@@ -223,22 +257,47 @@ async fn status(app: AppHandle, state: State<'_, AppState>) -> Result<Status, St
             .map(|(name, _, addr)| format!("{name} {addr}"))
             .collect();
         let pairing = services.iter().any(|(_, kind, _)| kind == "_adb-tls-pairing._tcp");
-        (devs, nearby, pairing)
+        // The address of a connected Wi-Fi phone, to reconnect to directly if discovery fails.
+        let ready_addr = devs.iter().filter(|d| d.state == "device").find_map(|d| {
+            if is_addr(&d.serial) {
+                return Some(d.serial.clone());
+            }
+            let name = d.serial.strip_suffix("._adb-tls-connect._tcp")?;
+            services.iter().find(|(n, _, _)| n == name).map(|(_, _, a)| a.clone())
+        });
+        (devs, nearby, pairing, ready_addr)
     })
     .await
     .map_err(|e| e.to_string())?;
 
-    // Nothing connected and nothing nearby for a while: restart our own adb server so its Wi-Fi
-    // discovery starts over (a fresh adb server misses the phone now and then). Only the bundled
-    // server (port 5038), never the user's own adb, and not while a phone is offering to pair.
-    if t.bundled && !running && !pairing && devices.is_empty() && nearby.is_empty() {
+    if let Some(a) = &ready_addr {
+        save_last_addr(&app, &state, a);
+    }
+
+    // No usable phone (an "offline" entry doesn't count) and nothing nearby for a while: adb's
+    // Wi-Fi discovery has probably gone quiet (a fresh adb server misses the phone now and then).
+    // First reconnect straight to the last address that worked; if that fails, restart our own
+    // adb server so discovery starts over. Only the bundled server (port 5038), never the user's
+    // own adb, and not while a phone is offering to pair.
+    let usable = devices.iter().any(|d| d.state == "device" || d.state == "unauthorized");
+    if t.bundled && !running && !pairing && !usable && nearby.is_empty() {
         let now = Instant::now();
         let quiet = *state.quiet_since.lock().unwrap().get_or_insert(now);
         let mut last = state.last_restart.lock().unwrap();
         if now - quiet >= QUIET_RESTART_AFTER && last.map_or(true, |l| now - l >= RESTART_EVERY) {
             *last = Some(now);
             let t3 = t.clone();
+            let addr = load_last_addr(&app, &state);
+            let stale: Vec<String> = devices.iter().map(|d| d.serial.clone()).collect();
             tauri::async_runtime::spawn_blocking(move || {
+                for s in stale.iter().filter(|s| is_addr(s)) {
+                    let _ = adb(&t3, &["disconnect", s]);
+                }
+                if let Some(a) = addr {
+                    if adb(&t3, &["connect", &a]).map_or(false, |o| o.contains("connected to")) {
+                        return;
+                    }
+                }
                 let _ = adb(&t3, &["kill-server"]);
                 let _ = adb(&t3, &["start-server"]);
             });
