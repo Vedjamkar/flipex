@@ -9,7 +9,8 @@
 #   ./dex-on-mac.sh --pictures only the picture copy-paste below, for a DeX window already open
 # While the window is open: copy a picture on the Mac (screenshot, Copy Image, a file in Finder)
 # and Cmd+V pastes it on the phone; drop files on the window to put them in Download.
-# Optional: DEX_SIZE=2560x1440/200  DEX_FPS=60  DEX_BITRATE=20M  (defaults keep the phone cooler)
+# Optional: DEX_SIZE=1280x720/160  DEX_FPS=60  DEX_BITRATE=20M  (defaults keep the phone cooler)
+# (FlipEx draws DeX at Full HD at most; a bigger DEX_SIZE makes scrcpy show only a corner.)
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
