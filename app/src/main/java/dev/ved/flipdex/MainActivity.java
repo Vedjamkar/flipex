@@ -3,6 +3,10 @@ package dev.ved.flipdex;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.content.res.TypedArray;
+import android.graphics.Insets;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -12,7 +16,7 @@ import android.provider.Settings;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
+import android.view.WindowInsets;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -25,8 +29,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * FlipEx home screen: a setup checklist (hidden once everything is ready), then switches for
- * the desktop, the session and the DeX extras, trackpad options, and a restore button.
+ * FlipEx home screen, laid out like a One UI settings page: a large header, a status card for
+ * the monitor (with the Start DeX button), a setup card while something is missing, then
+ * sections of switch rows and action rows. Built in code, no extra libraries.
  */
 public class MainActivity extends Activity implements Shell.Listener {
 
@@ -41,44 +46,52 @@ public class MainActivity extends Activity implements Shell.Listener {
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
 
+    // Colours for the current light/dark mode (One UI's settings palette).
+    private int colBg, colCard, colText, colSub, colDivider, colAccent;
+    private static final int GREEN = 0xFF2DB55D, AMBER = 0xFFF0A020, GREY = 0xFF8E8E93, RED = 0xFFE5484D;
+
     private LinearLayout setupCard;
-    private TextView setupText, monitorText;
-    private Button overlayBtn, shizukuBtn, hapticsBtn;
+    private TextView setupText, statusTitle, statusDetail, hapticsValue;
+    private View statusDot, startBtn, overlayRow, shizukuRow;
     private Switch desktopSw, sessionSw, featuresSw, stripSw, overlayDisplaySw;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (getActionBar() != null) getActionBar().hide();
         if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
             requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
         }
+        loadColours();
+        getWindow().getDecorView().setBackgroundColor(colBg);
+        // Dark status/nav bar icons on the light background, light icons on the dark one.
+        int lightBars = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+        getWindow().getInsetsController().setSystemBarsAppearance(isNight() ? 0 : lightBars, lightBars);
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(20);
-        col.setPadding(pad, pad, pad, pad);
+        col.setPadding(dp(12), 0, dp(12), dp(24));
 
-        TextView title = text(col, "FlipEx", 28);
-        title.setPadding(0, 0, 0, dp(2));
-        dim(text(col, "Samsung DeX on your Galaxy Z Flip", 14));
+        // Large One UI style header.
+        TextView title = label(col, "FlipEx", 32, colText, false);
+        title.setPadding(dp(12), dp(56), dp(12), dp(4));
+        TextView sub = label(col, "Samsung DeX on your Galaxy Z Flip", 15, colSub, false);
+        sub.setPadding(dp(12), 0, dp(12), dp(20));
 
-        // Setup checklist: only shown while something is missing.
-        setupCard = card(col);
-        text(setupCard, "Setup", 16);
-        setupText = text(setupCard, "", 14);
-        overlayBtn = button(setupCard, "Allow \"Display over other apps\"", v ->
-                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()))));
-        shizukuBtn = button(setupCard, "Connect Shizuku", v -> {
-            Shell.requestPermission();
-            Shell.connect(this);
-            refresh();
-        });
-
-        LinearLayout desk = card(col);
-        text(desk, "Monitor", 16);
-        monitorText = dim(text(desk, "", 13));
-        button(desk, "Start DeX on the monitor", v -> {
+        // Monitor status: the one thing to read at a glance, and the main action.
+        LinearLayout status = card(col);
+        status.setPadding(dp(20), dp(18), dp(20), dp(20));
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        statusDot = new View(this);
+        head.addView(statusDot, new LinearLayout.LayoutParams(dp(10), dp(10)));
+        statusTitle = label(head, "", 20, colText, true);
+        statusTitle.setPadding(dp(10), 0, 0, 0);
+        status.addView(head);
+        statusDetail = label(status, "", 14, colSub, false);
+        statusDetail.setPadding(0, dp(4), 0, dp(14));
+        startBtn = primaryButton(status, "Start DeX on the monitor", v -> {
             // For a monitor that shows the phone's screen (or nothing) instead of DeX. The session
             // starts the DeX home, then applies the wallpaper/taskbar settings, desk, keyboard
             // and mouse setup a normal connection gets.
@@ -90,7 +103,26 @@ public class MainActivity extends Activity implements Shell.Listener {
             FoldWatcherService.startDex(this);
             ui.postDelayed(this::refresh, 2000);
         });
-        desktopSw = toggle(desk, "DeX on monitors",
+
+        // Setup checklist: only shown while something is missing.
+        setupCard = card(col);
+        setupCard.setPadding(dp(20), dp(18), dp(20), dp(8));
+        label(setupCard, "Finish setup", 17, colText, true);
+        setupText = label(setupCard, "", 14, colSub, false);
+        setupText.setPadding(0, dp(6), 0, dp(6));
+        overlayRow = actionRow(setupCard, "Allow \"Display over other apps\"", null, colAccent, v ->
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName()))));
+        overlayRow.setPadding(0, dp(12), 0, dp(12));
+        shizukuRow = actionRow(setupCard, "Connect Shizuku", null, colAccent, v -> {
+            Shell.requestPermission();
+            Shell.connect(this);
+            refresh();
+        });
+        shizukuRow.setPadding(0, dp(12), 0, dp(12));
+
+        LinearLayout monitor = section(col, "Monitor");
+        desktopSw = toggleRow(monitor, "DeX on monitors",
                 "Plug in a monitor or TV and it shows the DeX desktop", (b, on) -> runBg(() -> {
                     DexSettings.setDesktop(this, on);
                     ui.post(() -> {  // same as the quick-settings tile: the session follows desktop mode
@@ -99,7 +131,8 @@ public class MainActivity extends Activity implements Shell.Listener {
                     });
                     return null;
                 }));
-        sessionSw = toggle(desk, "Session",
+        divider(monitor);
+        sessionSw = toggleRow(monitor, "Session",
                 "Cover trackpad when folded, mouse pinning, lock cover", (b, on) -> {
                     if (on) {
                         Shell.connect(this);
@@ -111,32 +144,34 @@ public class MainActivity extends Activity implements Shell.Listener {
                     ui.postDelayed(this::refresh, 300);
                 });
 
-        LinearLayout extras = card(col);
-        text(extras, "On the monitor", 16);
-        featuresSw = toggle(extras, "Samsung DeX features",
+        LinearLayout extras = section(col, "On the monitor");
+        featuresSw = toggleRow(extras, "Samsung DeX features",
                 "Wallpaper, full taskbar with running apps, no giant keyboard", (b, on) -> {
                     DexSettings.setDexFeaturesOn(this, on);
                     FoldWatcherService.refreshDexFeatures(this);
                 });
-        stripSw = toggle(extras, "FlipEx apps strip",
+        divider(extras);
+        stripSw = toggleRow(extras, "FlipEx apps strip",
                 "Extra open-apps bar above the taskbar", (b, on) -> DexSettings.setStripOn(this, on));
 
-        LinearLayout pads = card(col);
-        text(pads, "Trackpad", 16);
-        hapticsBtn = button(pads, "", v -> {
+        LinearLayout pads = section(col, "Trackpad");
+        View haptics = actionRow(pads, "Haptics", null, colText, v -> {
             int next = (Haptics.getLevel(this) + 2) % 3;  // Strong → Light → Off → Strong
             Haptics.setLevel(this, next);
             new Haptics(this).click();
             refresh();
         });
-        button(pads, "Trackpad on this screen", v ->
+        hapticsValue = label((LinearLayout) haptics, "", 15, colAccent, false);
+        divider(pads);
+        actionRow(pads, "Trackpad on this screen", "Use the phone screen as a trackpad", colText, v ->
                 TrackpadActivity.launch(this, getDisplay().getDisplayId(), false));
-        button(pads, "Dim phone screen (DeX keeps running)", v ->
+        divider(pads);
+        actionRow(pads, "Dim phone screen", "DeX keeps running on the monitor", colText, v ->
                 TrackpadActivity.launch(this, Display.DEFAULT_DISPLAY, true));
 
-        LinearLayout more = card(col);
-        text(more, "More", 16);
-        button(more, "Share diagnostics (if FlipEx doesn't work)", v -> new AlertDialog.Builder(this)
+        LinearLayout more = section(col, "More");
+        actionRow(more, "Share diagnostics", "If FlipEx doesn't work on your phone", colText,
+                v -> new AlertDialog.Builder(this)
                 .setTitle("Share diagnostics?")
                 .setMessage("Saves a text file in Download with your phone and One UI version, "
                         + "FlipEx's settings, the connected screens and recent system log lines about "
@@ -157,19 +192,25 @@ public class MainActivity extends Activity implements Shell.Listener {
                     });
                 })
                 .setNegativeButton("Cancel", null).show());
-        button(more, "DeX on a Mac (scrcpy)", v -> new AlertDialog.Builder(this)
+        divider(more);
+        actionRow(more, "DeX on a Mac", "Show DeX in a window with scrcpy", colText,
+                v -> new AlertDialog.Builder(this)
                 .setTitle("DeX on a Mac").setMessage(SCRCPY_HINT)
                 .setPositiveButton("OK", null).show());
-        button(more, "Open Samsung DeX settings", v -> runBg(() -> {
+        divider(more);
+        actionRow(more, "Open Samsung DeX settings", null, colText, v -> runBg(() -> {
             DexSettings.openDexSettings(this);
             return Shell.ready() ? null : "Search \"DeX\" in Settings, then open the DeX page.";
         }));
-        overlayDisplaySw = toggle(more, "Test display on the phone",
+        divider(more);
+        overlayDisplaySw = toggleRow(more, "Test display on the phone",
                 "Android's overlay display; shows a small preview", (b, on) -> runBg(() -> {
                     DexSettings.setVirtualDisplay(this, on);
                     return null;
                 }));
-        button(more, "Restore stock settings", v -> new AlertDialog.Builder(this)
+        divider(more);
+        actionRow(more, "Restore stock settings", "Undo everything FlipEx changed", RED,
+                v -> new AlertDialog.Builder(this)
                 .setTitle("Restore stock settings?")
                 .setMessage("Stops the session and puts every setting FlipEx changed back to stock.")
                 .setPositiveButton("Restore", (d, w) -> runBg(() -> {
@@ -182,6 +223,12 @@ public class MainActivity extends Activity implements Shell.Listener {
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(col);
+        // Android 15+ draws apps edge to edge: keep the content clear of the status and nav bars.
+        scroll.setOnApplyWindowInsetsListener((v, in) -> {
+            Insets bars = in.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return WindowInsets.CONSUMED;
+        });
         setContentView(scroll);
     }
 
@@ -230,28 +277,52 @@ public class MainActivity extends Activity implements Shell.Listener {
                         : "not running (start it over ADB after each reboot)").append('\n');
                 setupCard.setVisibility(missing.length() == 0 ? View.GONE : View.VISIBLE);
                 setupText.setText(missing.toString().trim());
-                overlayBtn.setVisibility(overlay ? View.GONE : View.VISIBLE);
-                shizukuBtn.setVisibility(shell ? View.GONE : View.VISIBLE);
+                overlayRow.setVisibility(overlay ? View.GONE : View.VISIBLE);
+                shizukuRow.setVisibility(shell ? View.GONE : View.VISIBLE);
 
                 if (ext.isEmpty()) {
-                    monitorText.setText(desktop ? "Ready: plug in a monitor" : "Turn on DeX on monitors, then plug in");
+                    setStatus(desktop ? colAccent : GREY,
+                            desktop ? "Ready" : "DeX is off",
+                            desktop ? "Plug in a monitor or TV" : "Turn on DeX on monitors, then plug in");
                 } else {
-                    StringBuilder m = new StringBuilder(desktop ? "DeX is on: " : "Connected (DeX off): ");
+                    StringBuilder names = new StringBuilder();
                     for (int i = 0; i < ext.size(); i++) {
-                        if (i > 0) m.append(", ");
-                        m.append(ext.get(i).getName());
+                        if (i > 0) names.append(", ");
+                        names.append(ext.get(i).getName());
                     }
-                    monitorText.setText(m);
+                    if (desktop) {
+                        setStatus(GREEN, "DeX is on", names + "\nShowing your phone's screen? Tap Start DeX.");
+                    } else {
+                        setStatus(AMBER, "Monitor connected", names + " · turn on DeX on monitors");
+                    }
                 }
+                styleStart(!ext.isEmpty());
+
                 set(desktopSw, desktop);
                 set(sessionSw, FoldWatcherService.isRunning());
                 set(featuresSw, DexSettings.isDexFeaturesOn(this));
                 set(stripSw, DexSettings.isStripOn(this));
                 set(overlayDisplaySw, overlayDisplay);
-                featuresSw.setEnabled(shell);
-                hapticsBtn.setText("Haptics: " + Haptics.name(Haptics.getLevel(this)));
+                enableRow(featuresSw, shell);
+                hapticsValue.setText(Haptics.name(Haptics.getLevel(this)));
             });
         });
+    }
+
+    /** Accent-filled when a monitor is connected; plainly greyed out when there's nothing to start. */
+    private void styleStart(boolean on) {
+        GradientDrawable shape = (GradientDrawable) startBtn.getBackground();
+        shape.setColor(on ? colAccent : colDivider);
+        ((TextView) startBtn).setTextColor(on ? 0xFFFFFFFF : colSub);
+    }
+
+    private void setStatus(int dotColour, String title, String detail) {
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(dotColour);
+        statusDot.setBackground(dot);
+        statusTitle.setText(title);
+        statusDetail.setText(detail);
     }
 
     private interface Job {
@@ -270,6 +341,23 @@ public class MainActivity extends Activity implements Shell.Listener {
 
     // ---- small view helpers ----
 
+    private boolean isNight() {
+        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private void loadColours() {
+        boolean night = isNight();
+        colBg = night ? 0xFF000000 : 0xFFF2F2F2;
+        colCard = night ? 0xFF1C1C1E : 0xFFFFFFFF;
+        colText = night ? 0xFFF2F2F2 : 0xFF111111;
+        colSub = night ? 0xFF9C9CA1 : 0xFF6B6B70;
+        colDivider = night ? 0x26FFFFFF : 0x1A000000;
+        TypedArray a = obtainStyledAttributes(new int[]{android.R.attr.colorAccent});
+        colAccent = a.getColor(0, 0xFF3E91FF);
+        a.recycle();
+    }
+
     /** Sets a switch without firing its listener (refresh must never change settings). */
     private static void set(Switch s, boolean on) {
         Object l = s.getTag();
@@ -278,54 +366,115 @@ public class MainActivity extends Activity implements Shell.Listener {
         s.setOnCheckedChangeListener((CompoundButton.OnCheckedChangeListener) l);
     }
 
-    private Switch toggle(LinearLayout parent, String label, String detail,
-                          CompoundButton.OnCheckedChangeListener l) {
-        Switch s = new Switch(this);
-        s.setText(label + "\n" + detail);
-        s.setTextSize(15);
-        s.setPadding(0, dp(10), 0, dp(10));
-        s.setTag(l);
-        s.setOnCheckedChangeListener(l);
-        parent.addView(s, new LinearLayout.LayoutParams(-1, -2));
-        return s;
+    private static void enableRow(Switch s, boolean on) {
+        View row = (View) s.getParent();
+        s.setEnabled(on);
+        row.setEnabled(on);
+        row.setAlpha(on ? 1f : 0.45f);
     }
 
-    private Button button(LinearLayout parent, String label, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        b.setOnClickListener(l);
-        parent.addView(b, new LinearLayout.LayoutParams(-1, -2));
-        return b;
-    }
-
-    private TextView text(LinearLayout parent, String s, int size) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(size);
-        t.setPadding(0, dp(4), 0, dp(4));
-        parent.addView(t);
-        return t;
-    }
-
-    private static TextView dim(TextView t) {
-        t.setAlpha(0.7f);
-        return t;
+    /** A section label above a rounded card; returns the card. */
+    private LinearLayout section(LinearLayout parent, String name) {
+        TextView h = label(parent, name, 14, colSub, true);
+        h.setPadding(dp(20), dp(24), dp(20), dp(8));
+        LinearLayout c = card(parent);
+        ((LinearLayout.LayoutParams) c.getLayoutParams()).topMargin = 0;
+        return c;
     }
 
     private LinearLayout card(LinearLayout parent) {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(16), dp(10), dp(16), dp(10));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(18));
-        bg.setColor(0x14888888);  // faint tint that works in light and dark themes
-        c.setBackground(bg);
+        c.setPadding(dp(20), dp(4), dp(20), dp(4));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setCornerRadius(dp(24));
+        shape.setColor(colCard);
+        c.setBackground(shape);
+        c.setClipToOutline(true);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(14);
+        lp.topMargin = dp(12);
         parent.addView(c, lp);
         return c;
+    }
+
+    /** Title and grey summary on the left, switch on the right; tapping anywhere flips it. */
+    private Switch toggleRow(LinearLayout parent, String title, String summary,
+                             CompoundButton.OnCheckedChangeListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(72));
+        row.setPadding(0, dp(14), 0, dp(14));
+        row.setBackgroundResource(ripple());
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        label(texts, title, 17, colText, false);
+        if (summary != null) label(texts, summary, 14, colSub, false).setPadding(0, dp(2), dp(12), 0);
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+        Switch s = new Switch(this);
+        s.setTag(l);
+        s.setOnCheckedChangeListener(l);
+        row.addView(s);
+        row.setOnClickListener(v -> {
+            if (s.isEnabled()) s.toggle();
+        });
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return s;
+    }
+
+    /** A tappable row: title (in the given colour) and optional grey summary. */
+    private LinearLayout actionRow(LinearLayout parent, String title, String summary, int titleColour,
+                                   View.OnClickListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(summary == null ? 56 : 72));
+        row.setPadding(0, dp(14), 0, dp(14));
+        row.setBackgroundResource(ripple());
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        label(texts, title, 17, titleColour, false);
+        if (summary != null) label(texts, summary, 14, colSub, false).setPadding(0, dp(2), 0, 0);
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+        row.setOnClickListener(l);
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return row;
+    }
+
+    /** Full-width filled button in the accent colour. */
+    private View primaryButton(LinearLayout parent, String text, View.OnClickListener l) {
+        TextView b = label(parent, text, 16, 0xFFFFFFFF, true);
+        b.setGravity(Gravity.CENTER);
+        b.setMinHeight(dp(52));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setCornerRadius(dp(26));
+        shape.setColor(colAccent);
+        b.setBackground(shape);
+        b.setForeground(getDrawable(ripple()));
+        b.setClickable(true);
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    private void divider(LinearLayout parent) {
+        View d = new View(this);
+        d.setBackgroundColor(colDivider);
+        parent.addView(d, new LinearLayout.LayoutParams(-1, Math.max(1, dp(1) / 2)));
+    }
+
+    private TextView label(LinearLayout parent, String s, int sp, int colour, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(sp);
+        t.setTextColor(colour);
+        if (bold) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        parent.addView(t);
+        return t;
+    }
+
+    private int ripple() {
+        TypedArray a = obtainStyledAttributes(new int[]{android.R.attr.selectableItemBackground});
+        int id = a.getResourceId(0, 0);
+        a.recycle();
+        return id;
     }
 
     private int dp(int v) {
