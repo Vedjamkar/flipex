@@ -41,4 +41,8 @@ interface IShellService {
     // Turns the window manager's "show system decorations" on or off for a display (home,
     // wallpaper, system bars). Android saves it per monitor. Returns a status string.
     String setSystemDecors(int displayId, boolean show) = 14;
+
+    // Installs an APK read from the given file (pm install -r, as the shell user: no prompt).
+    // Used by FlipEx's updater. Returns pm's output ("Success" or the failure reason).
+    String installApk(in ParcelFileDescriptor apk, long size) = 15;
 }

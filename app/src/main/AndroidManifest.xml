@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Updater: checks FlipEx's GitHub releases and downloads the APK. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Updater without Shizuku: Android's own install dialog. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Icons and names for the running-apps switcher (any app can be open on the DeX screen). -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
@@ -22,6 +26,18 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.DeviceDefault.DayNight"
         android:supportsRtl="true">
+
+        <!-- Restarts the session after an update; Android installer status for updates. -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="dev.ved.flipdex.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
 
         <activity
             android:name=".MainActivity"

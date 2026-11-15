@@ -29,7 +29,7 @@ public final class Shell {
                 .daemon(false)
                 .processNameSuffix("shell")
                 .debuggable(false)
-                .version(13);
+                .version(14);
     }
 
     private static final ServiceConnection CONNECTION = new ServiceConnection() {
@@ -188,6 +188,19 @@ public final class Shell {
     }
 
     public static final int IME_LOCAL = 0, IME_PHONE = 1, IME_HIDE = 2;
+
+    /** Installs an APK through the shell (FlipEx's updater). Returns pm's output, or "no shell". */
+    public static String installApk(android.os.ParcelFileDescriptor apk, long size) {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.installApk(apk, size);
+        } catch (RemoteException e) {
+            // A successful self-update would have ended this app, so reaching here means the
+            // shell went away: let the caller use Android's installer instead.
+            return "no shell (connection lost)";
+        }
+    }
 
     /** Gives a display its own home, wallpaper and system bars instead of mirroring the phone. */
     public static String setSystemDecors(int displayId, boolean show) {

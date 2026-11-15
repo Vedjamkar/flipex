@@ -347,6 +347,24 @@ public class ShellService extends IShellService.Stub {
         }
     }
 
+    @Override
+    public String installApk(android.os.ParcelFileDescriptor apk, long size) {
+        try {
+            Process p = new ProcessBuilder("pm", "install", "-r", "-S", String.valueOf(size))
+                    .redirectErrorStream(true).start();
+            try (java.io.InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(apk);
+                 java.io.OutputStream out = p.getOutputStream()) {
+                byte[] buf = new byte[64 * 1024];
+                for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            }
+            String result = readAll(p.getInputStream());
+            p.waitFor();
+            return result;
+        } catch (Throwable t) {
+            return "install failed: " + cause(t);
+        }
+    }
+
     /** Android 16 QPR2's own verdict on whether the display gets a desktop ("" if it has no such call). */
     private static String eligible(Object wm, int displayId) {
         try {

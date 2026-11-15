@@ -55,6 +55,10 @@ public class MainActivity extends Activity implements Shell.Listener {
     private View statusDot, startBtn, overlayRow, shizukuRow;
     private Switch desktopSw, sessionSw, featuresSw, stripSw, overlayDisplaySw, contentModeSw;
     private TextView contentModeSummary;
+    private LinearLayout updateCard;
+    private TextView updateTitle, updateNotes, updateBtn, updateRowSummary;
+    private Updater.Release update;
+    private boolean updating;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,6 +83,17 @@ public class MainActivity extends Activity implements Shell.Listener {
         title.setPadding(dp(12), dp(56), dp(12), dp(4));
         TextView sub = label(col, "Samsung DeX on your Galaxy Z Flip", 15, colSub, false);
         sub.setPadding(dp(12), 0, dp(12), dp(20));
+
+        // Update card: only shown when a newer FlipEx is on GitHub. Installing is one tap.
+        updateCard = card(col);
+        updateCard.setPadding(dp(20), dp(18), dp(20), dp(20));
+        updateTitle = label(updateCard, "", 17, colText, true);
+        updateNotes = label(updateCard, "", 14, colSub, false);
+        updateNotes.setPadding(0, dp(4), 0, dp(14));
+        updateNotes.setMaxLines(4);
+        updateNotes.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        updateBtn = (TextView) primaryButton(updateCard, "Update", v -> installUpdate());
+        updateCard.setVisibility(View.GONE);
 
         // Monitor status: the one thing to read at a glance, and the main action.
         LinearLayout status = card(col);
@@ -181,6 +196,9 @@ public class MainActivity extends Activity implements Shell.Listener {
                 .getChildAt(0)).getChildAt(1);
 
         LinearLayout more = section(col, "More");
+        View check = actionRow(more, "Check for updates", "", colText, v -> checkUpdate(true));
+        updateRowSummary = (TextView) ((LinearLayout) ((LinearLayout) check).getChildAt(0)).getChildAt(1);
+        divider(more);
         actionRow(more, "Share diagnostics", "If FlipEx doesn't work on your phone", colText,
                 v -> new AlertDialog.Builder(this)
                 .setTitle("Share diagnostics?")
@@ -255,6 +273,7 @@ public class MainActivity extends Activity implements Shell.Listener {
             }
         });
         ui.postDelayed(this::refresh, 300);
+        checkUpdate(false);
     }
 
     @Override
@@ -330,7 +349,79 @@ public class MainActivity extends Activity implements Shell.Listener {
     private void styleStart(boolean on) {
         GradientDrawable shape = (GradientDrawable) startBtn.getBackground();
         shape.setColor(on ? colAccent : colDivider);
-        ((TextView) startBtn).setTextColor(on ? 0xFFFFFFFF : colSub);
+        ((TextView) startBtn).setTextColor(on ? onAccent() : colSub);
+    }
+
+    /** Looks for a newer release (at most daily unless forced) and shows the Update card. */
+    private void checkUpdate(boolean force) {
+        if (updating) return;
+        if (force) updateRowSummary.setText("Checking…");
+        bg.execute(() -> {
+            Updater.Release r;
+            String err = null;
+            try {
+                r = Updater.check(this, force);
+            } catch (Exception e) {
+                r = Updater.cachedNewer(this);
+                err = "Couldn't reach GitHub: " + e.getMessage();
+            }
+            Updater.Release found = r;
+            String error = err;
+            ui.post(() -> {
+                showUpdate(found);
+                if (force) {
+                    if (error != null) Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+                    else if (found == null) Toast.makeText(this, "FlipEx is up to date.", Toast.LENGTH_SHORT).show();
+                }
+            });
+        });
+    }
+
+    private void showUpdate(Updater.Release r) {
+        update = r;
+        long when = Updater.lastChecked(this);
+        updateRowSummary.setText("Version " + Updater.currentVersion(this)
+                + (when > 0 ? " · checked " + android.text.format.DateUtils.getRelativeTimeSpanString(when) : ""));
+        if (r == null) {
+            updateCard.setVisibility(View.GONE);
+            return;
+        }
+        updateCard.setVisibility(View.VISIBLE);
+        updateTitle.setText("FlipEx " + r.version + " is available");
+        String notes = r.notes.replaceAll("(?m)^#+\\s*", "").replaceAll("\\*\\*", "").trim();
+        updateNotes.setText(notes.isEmpty() ? "You have " + Updater.currentVersion(this) + "." : notes);
+        updateBtn.setText("Update to " + r.version);
+    }
+
+    /** One tap: download, check the checksum and signing key, install (FlipEx restarts). */
+    private void installUpdate() {
+        Updater.Release r = update;
+        if (r == null || updating) return;
+        updating = true;
+        updateBtn.setText("Downloading…");
+        bg.execute(() -> {
+            String msg;
+            try {
+                java.io.File apk = Updater.download(this, r,
+                        p -> ui.post(() -> updateBtn.setText("Downloading… " + p + "%")));
+                ui.post(() -> updateBtn.setText("Installing… FlipEx will restart"));
+                msg = Updater.install(this, apk);
+            } catch (Exception e) {
+                msg = e.getMessage();
+            }
+            String m = msg;
+            ui.post(() -> {
+                updating = false;
+                updateBtn.setText("Update to " + r.version);
+                if (m != null) {
+                    new AlertDialog.Builder(this).setTitle("Update").setMessage(m)
+                            .setPositiveButton("OK", null)
+                            .setNeutralButton("Open on GitHub", (d, w) -> startActivity(
+                                    new Intent(Intent.ACTION_VIEW, Uri.parse(r.page))))
+                            .show();
+                }
+            });
+        });
     }
 
     private void setStatus(int dotColour, String title, String detail) {
@@ -458,7 +549,7 @@ public class MainActivity extends Activity implements Shell.Listener {
 
     /** Full-width filled button in the accent colour. */
     private View primaryButton(LinearLayout parent, String text, View.OnClickListener l) {
-        TextView b = label(parent, text, 16, 0xFFFFFFFF, true);
+        TextView b = label(parent, text, 16, onAccent(), true);
         b.setGravity(Gravity.CENTER);
         b.setMinHeight(dp(52));
         GradientDrawable shape = new GradientDrawable();
@@ -469,6 +560,12 @@ public class MainActivity extends Activity implements Shell.Listener {
         b.setClickable(true);
         b.setOnClickListener(l);
         return b;
+    }
+
+    /** Text colour that reads on the accent: white on Samsung's blue, near-black on a pale accent. */
+    private int onAccent() {
+        double l = 0.2126 * ((colAccent >> 16) & 255) + 0.7152 * ((colAccent >> 8) & 255) + 0.0722 * (colAccent & 255);
+        return l > 160 ? 0xFF111111 : 0xFFFFFFFF;
     }
 
     private void divider(LinearLayout parent) {
