@@ -310,9 +310,14 @@ public class FoldWatcherService extends Service
             android.os.SystemClock.sleep(600);
         }
         String state = displayContentState(displayId);
+        // Read it again: on One UI 8 only setup-complete (Knox "DeX disabled") writes it, but a
+        // later One UI could set it back to mirror when a monitor connects.
+        String after = DexSettings.getMirrorSetting();
         String r = "content mode (" + why + "): " + decors + "; " + mirror + "; " + state
-                + "; home " + (home ? "yes" : "no");
-        if (!home && state.contains("canHostTasks false") && !"1".equals(DexSettings.getMirrorSetting())) {
+                + "; home " + (home ? "yes" : "no") + "; mirror after wait=" + after;
+        if (mirror.endsWith("-> 0") && "1".equals(after)) {
+            r += "; the phone set mirroring back on by itself";
+        } else if (!home && state.contains("canHostTasks false") && !"1".equals(after)) {
             r += "; Android won't let this monitor host apps (mirror-only on this phone)";
         }
         Log.i("FlipEx", r);
