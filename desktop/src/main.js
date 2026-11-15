@@ -60,7 +60,8 @@ function render(s) {
 
   $("nearby").innerHTML = s.nearby
     .map((n) => {
-      const [name, addr] = n.split(" ");
+      const cut = n.lastIndexOf(" "); // names can contain spaces ("adb-XYZ (2)")
+      const name = n.slice(0, cut), addr = n.slice(cut + 1);
       return `<button class="item link" data-addr="${addr}">Connect ${name.replace(/^adb-/, "").replace(/-.*$/, "")} <span class="sub">${addr}</span></button>`;
     })
     .join("");

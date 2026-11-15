@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const BUNDLED_ADB_PORT: &str = "5038";
@@ -28,7 +29,16 @@ struct AppState {
     tools: Mutex<Option<Tools>>,
     dex: Mutex<Option<Child>>,
     qr: Mutex<Option<(String, String)>>, // (service name, password) of a QR pairing in progress
+    /// Since when no phone has been connected or seen nearby, and when the bundled adb server was
+    /// last restarted: adb's Wi-Fi discovery can go quiet (for example when it starts while the
+    /// phone is switching wireless debugging on), and only a server restart brings it back.
+    quiet_since: Mutex<Option<Instant>>,
+    last_restart: Mutex<Option<Instant>>,
 }
+
+/// How long nothing is found before the bundled adb server is restarted, and how often at most.
+const QUIET_RESTART_AFTER: Duration = Duration::from_secs(8);
+const RESTART_EVERY: Duration = Duration::from_secs(30);
 
 #[derive(Serialize)]
 struct Device {
@@ -168,7 +178,8 @@ fn mdns(t: &Tools) -> Vec<(String, String, String)> {
     let out = adb(t, &["mdns", "services"]).unwrap_or_default();
     out.lines()
         .filter_map(|l| {
-            let f: Vec<&str> = l.split_whitespace().collect();
+            // Tab-separated; instance names can contain spaces ("adb-XYZ (2)").
+            let f: Vec<&str> = l.split('\t').map(str::trim).collect();
             if f.len() >= 3 && f[1].starts_with("_adb-tls-") {
                 Some((f[0].to_string(), f[1].trim_end_matches('.').to_string(), f[2].to_string()))
             } else {
@@ -194,7 +205,7 @@ async fn status(app: AppHandle, state: State<'_, AppState>) -> Result<Status, St
     let t2 = t.clone();
     let (devices, nearby) = tauri::async_runtime::spawn_blocking(move || {
         let devs = devices(&t2);
-        let nearby = mdns(&t2)
+        let nearby: Vec<String> = mdns(&t2)
             .into_iter()
             .filter(|(name, kind, addr)| {
                 kind == "_adb-tls-connect._tcp"
@@ -206,6 +217,24 @@ async fn status(app: AppHandle, state: State<'_, AppState>) -> Result<Status, St
     })
     .await
     .map_err(|e| e.to_string())?;
+
+    // Nothing connected and nothing nearby for a while: restart our own adb server so its Wi-Fi
+    // discovery starts over. Only the bundled server (port 5038), never the user's own adb.
+    if t.bundled && !running && devices.is_empty() && nearby.is_empty() {
+        let now = Instant::now();
+        let quiet = *state.quiet_since.lock().unwrap().get_or_insert(now);
+        let mut last = state.last_restart.lock().unwrap();
+        if now - quiet >= QUIET_RESTART_AFTER && last.map_or(true, |l| now - l >= RESTART_EVERY) {
+            *last = Some(now);
+            let t3 = t.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let _ = adb(&t3, &["kill-server"]);
+                let _ = adb(&t3, &["start-server"]);
+            });
+        }
+    } else {
+        *state.quiet_since.lock().unwrap() = None;
+    }
     Ok(Status { tools: t, devices, nearby, dex_running: running })
 }
 
