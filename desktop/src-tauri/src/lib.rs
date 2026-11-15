@@ -37,8 +37,8 @@ struct AppState {
 }
 
 /// How long nothing is found before the bundled adb server is restarted, and how often at most.
-const QUIET_RESTART_AFTER: Duration = Duration::from_secs(8);
-const RESTART_EVERY: Duration = Duration::from_secs(30);
+const QUIET_RESTART_AFTER: Duration = Duration::from_secs(5);
+const RESTART_EVERY: Duration = Duration::from_secs(12);
 
 #[derive(Serialize)]
 struct Device {
@@ -203,24 +203,35 @@ async fn status(app: AppHandle, state: State<'_, AppState>) -> Result<Status, St
         }
     };
     let t2 = t.clone();
-    let (devices, nearby) = tauri::async_runtime::spawn_blocking(move || {
-        let devs = devices(&t2);
-        let nearby: Vec<String> = mdns(&t2)
-            .into_iter()
+    let (devices, nearby, pairing) = tauri::async_runtime::spawn_blocking(move || {
+        let services = mdns(&t2);
+        let mut devs = devices(&t2);
+        // One phone can be listed twice: by its Wi-Fi name and by its address. Keep the name.
+        let named_addrs: Vec<&str> = devs
+            .iter()
+            .filter_map(|d| d.serial.strip_suffix("._adb-tls-connect._tcp"))
+            .filter_map(|n| services.iter().find(|(name, _, _)| name == n).map(|(_, _, a)| a.as_str()))
+            .collect();
+        let named_addrs: Vec<String> = named_addrs.into_iter().map(String::from).collect();
+        devs.retain(|d| !named_addrs.contains(&d.serial));
+        let nearby: Vec<String> = services
+            .iter()
             .filter(|(name, kind, addr)| {
                 kind == "_adb-tls-connect._tcp"
                     && !devs.iter().any(|d| d.serial == *addr || d.serial.starts_with(name.as_str()))
             })
             .map(|(name, _, addr)| format!("{name} {addr}"))
             .collect();
-        (devs, nearby)
+        let pairing = services.iter().any(|(_, kind, _)| kind == "_adb-tls-pairing._tcp");
+        (devs, nearby, pairing)
     })
     .await
     .map_err(|e| e.to_string())?;
 
     // Nothing connected and nothing nearby for a while: restart our own adb server so its Wi-Fi
-    // discovery starts over. Only the bundled server (port 5038), never the user's own adb.
-    if t.bundled && !running && devices.is_empty() && nearby.is_empty() {
+    // discovery starts over (a fresh adb server misses the phone now and then). Only the bundled
+    // server (port 5038), never the user's own adb, and not while a phone is offering to pair.
+    if t.bundled && !running && !pairing && devices.is_empty() && nearby.is_empty() {
         let now = Instant::now();
         let quiet = *state.quiet_since.lock().unwrap().get_or_insert(now);
         let mut last = state.last_restart.lock().unwrap();
@@ -241,9 +252,19 @@ async fn status(app: AppHandle, state: State<'_, AppState>) -> Result<Status, St
 #[tauri::command]
 async fn connect(app: AppHandle, state: State<'_, AppState>, address: String) -> Result<String, String> {
     let t = tools(&app, &state);
-    tauri::async_runtime::spawn_blocking(move || adb(&t, &["connect", &address]))
+    let out = tauri::async_runtime::spawn_blocking(move || adb(&t, &["connect", &address]))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+    // adb prints its failures and still exits 0.
+    if out.contains("connected to") {
+        Ok("Connected.".into())
+    } else {
+        // Typically an old Wi-Fi debugging address the phone still advertises after a restart.
+        Err(format!(
+            "the phone didn't answer at that address. Turn Wireless debugging off and on on the phone and try again. ({})",
+            out.trim()
+        ))
+    }
 }
 
 /// Pairing with the six-digit code from the phone's "Pair device with pairing code".
