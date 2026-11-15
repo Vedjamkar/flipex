@@ -443,7 +443,7 @@ async fn start_dex(
     let mut child = command(&t, &scrcpy)
         .args(&args)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("couldn't start scrcpy: {e}"))?;
@@ -451,27 +451,41 @@ async fn start_dex(
     // Tell the window when scrcpy ends, with its last error lines. With the phone screen off,
     // also switch off the phone's other built-in screens once scrcpy has turned off the main one,
     // and give them back their normal state when the DeX window closes.
+    // scrcpy's own messages and its server's can come out on either stream, so read both.
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let panels_off = Arc::new(AtomicBool::new(false));
+    let watch = move |line: &str, t: &Tools, serial: &str, flag: &Arc<AtomicBool>| {
+        if dark && line.contains("display turned off") && !flag.swap(true, Ordering::SeqCst) {
+            let (t, serial) = (t.clone(), serial.to_string());
+            std::thread::spawn(move || builtin_screens(&t, &serial, "power-off"));
+        }
+    };
+    if let Some(out) = child.stdout.take() {
+        let (t3, s3, flag) = (t.clone(), serial.clone(), panels_off.clone());
+        std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                watch(&line, &t3, &s3, &flag);
+            }
+        });
+    }
     let stderr = child.stderr.take();
     let handle = app.clone();
     let (t3, s3) = (t.clone(), serial.clone());
     std::thread::spawn(move || {
         use std::io::{BufRead, BufReader};
         let mut tail: Vec<String> = Vec::new();
-        let mut panels_off = false;
         if let Some(err) = stderr {
             for line in BufReader::new(err).lines().map_while(Result::ok) {
-                if dark && !panels_off && line.contains("display turned off") {
-                    panels_off = true;
-                    let (t4, s4) = (t3.clone(), s3.clone());
-                    std::thread::spawn(move || builtin_screens(&t4, &s4, "power-off"));
-                }
+                watch(&line, &t3, &s3, &panels_off);
                 tail.push(line);
                 if tail.len() > 6 {
                     tail.remove(0);
                 }
             }
         }
-        if panels_off {
+        if panels_off.load(Ordering::SeqCst) {
             builtin_screens(&t3, &s3, "power-reset");
         }
         let _ = handle.emit("dex-ended", tail.join("\n"));
