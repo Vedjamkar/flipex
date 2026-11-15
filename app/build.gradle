@@ -2,9 +2,35 @@ plugins {
     id 'com.android.application'
 }
 
+// Release signing: reads the key's location and passwords from a private properties file kept
+// outside the repo (default ~/.flipex/keystore.properties, or FLIPEX_KEYSTORE_PROPERTIES).
+// Without it, release builds are produced unsigned.
+def keystorePropsFile = file(System.getenv('FLIPEX_KEYSTORE_PROPERTIES')
+        ?: "${System.getProperty('user.home')}/.flipex/keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) keystorePropsFile.withInputStream { keystoreProps.load(it) }
+
 android {
     namespace 'dev.ved.flipdex'
     compileSdk 36
+
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            release {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false  // the shell service calls hidden APIs by reflection
+            if (keystorePropsFile.exists()) signingConfig signingConfigs.release
+        }
+    }
 
     defaultConfig {
         applicationId 'dev.ved.flipdex'
