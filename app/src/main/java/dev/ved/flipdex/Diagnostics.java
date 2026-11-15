@@ -48,7 +48,7 @@ final class Diagnostics {
                 .append("build=").append(Build.DISPLAY).append('\n')
                 .append("flipex=").append(version(c)).append('\n')
                 .append("oneui=").append(DexSettings.oneUiName()).append(" (route: ")
-                .append(DexSettings.useContentModeRoute(c) ? "content mode" : "system decors")
+                .append(DexSettings.useContentModeRoute(c) ? "virtual display" : "system decors")
                 .append(DexSettings.isContentModeRouteAuto(c) ? ", auto" : ", set by the user")
                 .append(")\n");
 
@@ -104,8 +104,9 @@ final class Diagnostics {
         cmd(r, "Window shell commands", "wm shell help 2>&1 | grep -A40 desktopmode | head -45", 6000);
         // FlipEx's own lines from the whole log buffer: the filtered window below can be only
         // seconds long on a busy phone and miss the Start DeX press.
-        cmd(r, "FlipEx and mirror log (whole buffer)", "logcat -d -v time | grep -E "
-                + "'FlipEx|mirrorBuiltInDisplay|Set canHostTasks' | tail -n 300", 40000);
+        cmd(r, "FlipEx and mirror log (whole buffer)", "logcat -d -v time -s FlipEx:V "
+                + "DisplayManagerService:I LogicalDisplay:I | grep -E "
+                + "'FlipEx|mirrorBuiltInDisplay|canHostTasks|hasContent' | tail -n 300", 40000);
         cmd(r, "Recent log (filtered)", "logcat -d -v time -t 6000 | grep -E '" + LOG_FILTER + "'"
                 + " | grep -vE 'Collecting in transition|BLAST|SurfaceFlinger' | tail -n 700", 300000);
         return r.toString();

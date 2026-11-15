@@ -1,5 +1,7 @@
 package dev.ved.flipdex;
 
+import android.view.Surface;
+
 // Runs inside Shizuku's shell-privileged process.
 interface IShellService {
     // Transaction code 16777114 is reserved by Shizuku for destroy().
@@ -45,4 +47,13 @@ interface IShellService {
     // Installs an APK read from the given file (pm install -r, as the shell user: no prompt).
     // Used by FlipEx's updater. Returns pm's output ("Success" or the failure reason).
     String installApk(in ParcelFileDescriptor apk, long size) = 15;
+
+    // One UI 8.5 keeps HDMI/USB-C monitors mirror-only (Samsung's LogicalDisplay check on
+    // TYPE_EXTERNAL), so DeX runs on a virtual display that renders into `surface` (a FlipEx
+    // window on the monitor). Only one at a time: creating a new one releases the old one.
+    // `owner` is a binder from the app: if the app dies, the display and every mouse pin are
+    // released. Returns "ok <displayId>" or the failure reason.
+    String dexDisplayCreate(in Surface surface, int width, int height, int dpi, String name, IBinder owner) = 16;
+    // Releases the virtual display (if any) and every mouse pin made by this service.
+    String dexDisplayRelease() = 17;
 }

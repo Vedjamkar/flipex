@@ -111,7 +111,7 @@ public class MainActivity extends Activity implements Shell.Listener {
             // For a monitor that shows the phone's screen (or nothing) instead of DeX. The session
             // starts the DeX home, then applies the wallpaper/taskbar settings, desk, keyboard
             // and mouse setup a normal connection gets.
-            if (DexSettings.externalDisplays(this).isEmpty()) {
+            if (DexSettings.monitors(this).isEmpty()) {
                 Toast.makeText(this, "No monitor connected.", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -297,7 +297,7 @@ public class MainActivity extends Activity implements Shell.Listener {
             boolean shell = Shell.ready();
             boolean desktop = DexSettings.isDesktopOn(this);
             boolean overlayDisplay = DexSettings.isVirtualDisplayOn(this);
-            List<Display> ext = DexSettings.externalDisplays(this);
+            List<Display> ext = DexSettings.monitors(this);
             ui.post(() -> {
                 StringBuilder missing = new StringBuilder();
                 if (!write) missing.append("• Settings permission: granted automatically once Shizuku is connected\n");
@@ -334,8 +334,8 @@ public class MainActivity extends Activity implements Shell.Listener {
                 set(stripSw, DexSettings.isStripOn(this));
                 set(overlayDisplaySw, overlayDisplay);
                 set(contentModeSw, DexSettings.useContentModeRoute(this));
-                contentModeSummary.setText("Uses Android's Mirror/Extend setting to give the monitor "
-                        + "its own desktop. "
+                contentModeSummary.setText("One UI 8.5 keeps monitors mirror-only, so DeX runs on a "
+                        + "virtual display that FlipEx shows full screen on the monitor. "
                         + (DexSettings.isContentModeRouteAuto(this)
                         ? "Automatic: on for One UI 8.5 and later (this phone: " + DexSettings.oneUiName() + ")."
                         : "Set by you (this phone: " + DexSettings.oneUiName() + "). Restore stock settings returns it to automatic."));

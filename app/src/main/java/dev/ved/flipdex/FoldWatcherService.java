@@ -51,6 +51,7 @@ public class FoldWatcherService extends Service
     // Lock handling: the DeX screen is covered and mice released while the phone is locked.
     private KeyguardManager km;
     private LockCurtain curtain;
+    private DexScreen dexScreen;
     private TaskStrip strip;
     private final java.util.Set<Integer> seenOnDex = new java.util.HashSet<>();  // bg thread only
     private boolean locked;
@@ -127,6 +128,7 @@ public class FoldWatcherService extends Service
 
         km = getSystemService(KeyguardManager.class);
         curtain = new LockCurtain(this);
+        dexScreen = new DexScreen(this);
         strip = new TaskStrip(this, bg);
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_SCREEN_OFF);
@@ -146,7 +148,7 @@ public class FoldWatcherService extends Service
             syncMonitors();
         } else if (intent != null && ACTION_START_DEX.equals(intent.getAction())) {
             bg.execute(() -> {
-                String msg = startDexNow(newestExternal(), false);
+                String msg = startDexNow(newestMonitor(), false);
                 handler.post(() -> android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show());
             });
         }
@@ -173,10 +175,12 @@ public class FoldWatcherService extends Service
         if (d == null) return "No monitor connected.";
         if (!Shell.ready()) return "Needs Shizuku.";
         int id = d.getDisplayId();
+        // One UI 8.5 (or the switch): DeX runs on FlipEx's virtual display, shown on the monitor.
+        boolean virtual = DexSettings.useContentModeRoute(this);
         String home = Shell.exec("cmd package resolve-activity --brief -a android.intent.action.MAIN"
                 + " -c android.intent.category.SECONDARY_HOME");
         boolean saved = home != null && home.trim().endsWith(DexSettings.DEX_HOME);
-        if (auto && !saved) return null;
+        if (auto && !saved && !virtual) return null;
         // The button needs "DeX on monitors": without it every step below skips this monitor
         // (seen on a One UI 8.5 tester's phone: the button did nothing). Pressing it turns it on,
         // the same as the switch.
@@ -184,9 +188,9 @@ public class FoldWatcherService extends Service
             boolean ok = DexSettings.setDesktop(this, true);
             appendDiag("startDex(" + id + "): DeX on monitors was off; turned on " + (ok ? "ok" : "FAILED"));
         }
-        appendDiag("startDex(" + id + (auto ? ", auto" : "") + "): SECONDARY_HOME="
-                + (home == null ? "?" : home.trim().replace('\n', ' ')) + "; home on monitor before="
-                + hasHome(id));
+        appendDiag("startDex(" + id + (auto ? ", auto" : "") + (virtual ? ", virtual display" : "")
+                + "): SECONDARY_HOME=" + (home == null ? "?" : home.trim().replace('\n', ' '))
+                + "; home on monitor before=" + hasHome(id));
 
         // 1. The settings Samsung's launcher reads (wallpaper, full taskbar), before it starts.
         if (DexSettings.isDexFeaturesOn(this)) {
@@ -194,47 +198,58 @@ public class FoldWatcherService extends Service
             dexFeatures = true;
         }
         // 2. Own desktop for the monitor (also clears the old window-mode override). With it,
-        //    Android starts the DeX home, wallpaper and taskbar by itself.
-        //    One UI 8.5+ doesn't retry on display changes, so the button tries again.
-        if (DexSettings.useContentModeRoute(this) && !hasHome(id)) ownDesktopGiven.remove(id);
+        //    Android starts the DeX home, wallpaper and taskbar by itself. On the virtual-display
+        //    route that is FlipEx's display, made with system decorations.
+        if (virtual && !(vdId >= 0 && vdMonitor == id)) ownDesktopGiven.remove(id);
         giveOwnDesktop(id);
+        int dexId = id;
+        if (virtual) {
+            for (int i = 0; i < 25 && !(vdId >= 0 && vdMonitor == id); i++) android.os.SystemClock.sleep(300);
+            if (!(vdId >= 0 && vdMonitor == id)) {
+                appendDiag("startDex(" + id + "): no virtual display: " + vdError);
+                return "Couldn't start DeX on " + d.getName() + " (" + vdError + "). The monitor keeps "
+                        + "showing the phone. Please tap Share diagnostics and send the file.";
+            }
+            dexId = vdId;
+        }
         android.os.SystemClock.sleep(1500);
 
         // 3. Only if Android still put no home there: ask for the monitor's home the way Android
         //    does (resolved to the saved One UI Home choice, so it is a real home screen). Never
         //    name the DeX home directly: that makes it an ordinary app window with no wallpaper.
-        if (!hasHome(id)) {
-            if (!saved) {
+        if (!hasHome(dexId)) {
+            if (saved) {
+                Shell.exec("am start --display " + dexId
+                        + " -a android.intent.action.MAIN -c android.intent.category.SECONDARY_HOME");
+                Log.i("FlipEx", (auto ? "monitor had no home; " : "") + "started DeX home on display " + dexId);
+            } else if (!virtual) {
                 appendDiag("startDex(" + id + "): no home on the monitor and no saved DeX home choice");
                 return "Android hasn't been told which home to use on monitors. Unplug and replug the "
                         + "monitor; if Android asks, pick One UI Home → Always.";
             }
-            Shell.exec("am start --display " + id
-                    + " -a android.intent.action.MAIN -c android.intent.category.SECONDARY_HOME");
-            Log.i("FlipEx", (auto ? "monitor had no home; " : "") + "started DeX home on display " + id);
         } else {
-            Log.i("FlipEx", "display " + id + " has its own desktop");
+            Log.i("FlipEx", "display " + dexId + " has its own desktop");
         }
 
         // 4. Did it work? On some One UI versions Android keeps the monitor mirrored. Then say
         //    so, and leave the mouse on the phone so the mirror stays usable.
         android.os.SystemClock.sleep(2000);
-        if (!hasHome(id)) {
-            appendDiag("startDex(" + id + "): monitor still mirrors the phone after starting DeX");
-            Log.w("FlipEx", "display " + id + " still mirrors after Start DeX");
+        if (!hasHome(dexId)) {
+            appendDiag("startDex(" + id + "): no home on display " + dexId + " after starting DeX");
+            Log.w("FlipEx", "display " + dexId + " has no home after Start DeX");
             repinMice();
-            String hint = DexSettings.useContentModeRoute(this)
-                    ? "If searching Settings for \"Connected display\" finds an Extend option, "
-                            + "pick it and replug the monitor. "
-                    : "";
+            if (virtual) {
+                return "DeX's home screen didn't open on " + d.getName() + ". If the monitor asks "
+                        + "which home to use, pick One UI Home → Always. Otherwise please tap Share "
+                        + "diagnostics and send the file.";
+            }
             return "Android kept " + d.getName() + " mirroring the phone, so DeX couldn't start. "
-                    + "The mouse stays on the phone. " + hint
-                    + "Please tap Share diagnostics and send the file.";
+                    + "The mouse stays on the phone. Please tap Share diagnostics and send the file.";
         }
 
         // 5. Everything else a monitor gets: desk (taskbar apps), no phone keyboard, mice.
-        appendDiag("startDex(" + id + "): monitor has its own home; DeX started");
-        imeHidden.remove(id);
+        appendDiag("startDex(" + id + "): display " + dexId + " has its own home; DeX started");
+        imeHidden.remove(dexId);
         handler.postDelayed(() -> {
             hideImeOnDex();
             ensureDesks();
@@ -260,29 +275,24 @@ public class FoldWatcherService extends Service
 
     private void giveOwnDesktop(int displayId) {
         if (!Shell.ready() || !isDexMonitor(displayId)) return;
+        if (DexSettings.isFlipExDisplay(dm.getDisplay(displayId))) return;  // made with all of it
         if (!ownDesktopGiven.add(displayId)) return;  // already done (or in progress) for this screen
+        // One UI 8.5: Samsung keeps every external display mirror-only (LogicalDisplay refuses
+        // TYPE_EXTERNAL), so DeX goes on FlipEx's own virtual display, shown on the monitor.
+        // Auto on One UI 8.5 and later; the experimental switch turns it on or off by hand.
+        if (DexSettings.useContentModeRoute(this)) {
+            startVirtualDesktop(displayId, "One UI " + DexSettings.oneUiName()
+                    + (DexSettings.isContentModeRouteAuto(this) ? ", auto" : ", switched on by the user"));
+            return;
+        }
         // DeX's own screen density (Samsung stores it; 160 by default). At the monitor's native
         // density Android's navigation bar is taller than the DeX taskbar and its buttons poke out
         // above it; at DeX density the taskbar covers it exactly, as in real DeX.
         Shell.exec("wm density " + DexSettings.dexDensity(this) + " -d " + displayId);
         // Like real DeX (Full HD by default): a 1440p/4K monitor would be tiny at DeX density, so
         // its desktop is drawn at 1080 lines and scaled up. 1080p and smaller stay as they are.
-        Display shown = dm.getDisplay(displayId);
-        if (shown != null) {
-            Display.Mode m = shown.getMode();
-            int w = m.getPhysicalWidth(), h = m.getPhysicalHeight(), shortSide = Math.min(w, h);
-            if (shortSide > 1080) {
-                int sw = Math.round(w * 1080f / shortSide), sh = Math.round(h * 1080f / shortSide);
-                Shell.exec("wm size " + sw + "x" + sh + " -d " + displayId);
-            }
-        }
-        // One UI 8.5+ (Android 16 QPR2): Android itself decides mirror or desktop per monitor.
-        // Auto: only One UI 8.5 and later take this route; the experimental switch overrides it.
-        if (DexSettings.useContentModeRoute(this)) {
-            giveOwnDesktopContentMode(displayId, "One UI " + DexSettings.oneUiName()
-                    + (DexSettings.isContentModeRouteAuto(this) ? ", auto" : ", switched on by the user"));
-            return;
-        }
+        int[] size = dexSize(displayId);
+        if (size != null && size[2] == 1) Shell.exec("wm size " + size[0] + "x" + size[1] + " -d " + displayId);
         String r = "";
         // A screen that has only just connected can refuse it ("false"); try for a few seconds.
         for (int i = 0; i < 8 && isDexMonitor(displayId); i++) {
@@ -291,10 +301,11 @@ public class FoldWatcherService extends Service
             r = Shell.setSystemDecors(displayId, true);
             if (r.startsWith("system decors true")) break;
             // This Android has no such call (Android 16 QPR2 and later, e.g. a phone whose One UI
-            // version couldn't be read): use the content-mode route instead of retrying something
-            // that can't work. Never happens on One UI 8, where the call exists.
+            // version couldn't be read): use the virtual-display route instead of retrying
+            // something that can't work. Never happens on One UI 8, where the call exists.
             if (r.startsWith("system decors unsupported")) {
-                giveOwnDesktopContentMode(displayId, "no setShouldShowSystemDecors");
+                Shell.exec("wm size reset -d " + displayId + "; wm density reset -d " + displayId);
+                startVirtualDesktop(displayId, "no setShouldShowSystemDecors");
                 return;
             }
             android.os.SystemClock.sleep(600);
@@ -306,37 +317,103 @@ public class FoldWatcherService extends Service
     }
 
     /**
-     * One UI 8.5 / Android 16 QPR2 route. There, setShouldShowSystemDecors no longer exists (and
-     * would be undone anyway): the window manager gives a monitor its home, wallpaper and bars
-     * when the display "can host tasks", which DisplayManager sets from the secure setting
-     * mirror_built_in_display (1 = mirror the phone on every monitor, 0 = own desktop). So:
-     * try the old call once in case Samsung kept it, then make sure that setting says "own
-     * desktop", and wait for Android to put a home on the monitor. Runs on the bg thread, after
-     * the density/size step. Never toggles anything off and on again.
+     * DeX's drawing size for a monitor: {width, height, scaled}. Like real DeX (Full HD by
+     * default), a 1440p/4K monitor is drawn at 1080 lines and scaled up; 1080p and smaller stay.
      */
-    private void giveOwnDesktopContentMode(int displayId, String why) {
-        String decors = Shell.setSystemDecors(displayId, true);
-        String mirror = DexSettings.allowOwnDesktop(this);
-        Shell.exec("wm set-display-windowing-mode -d " + displayId + " 0");
-        boolean home = false;
-        for (int i = 0; i < 10 && isDexMonitor(displayId) && !(home = hasHome(displayId)); i++) {
-            android.os.SystemClock.sleep(600);
+    private int[] dexSize(int displayId) {
+        Display shown = dm.getDisplay(displayId);
+        if (shown == null) return null;
+        Display.Mode m = shown.getMode();
+        int w = m.getPhysicalWidth(), h = m.getPhysicalHeight(), shortSide = Math.min(w, h);
+        if (shortSide <= 1080) return new int[]{w, h, 0};
+        return new int[]{Math.round(w * 1080f / shortSide), Math.round(h * 1080f / shortSide), 1};
+    }
+
+    // ---- One UI 8.5: DeX on FlipEx's virtual display ----
+
+    private volatile int vdId = -1;       // FlipEx's DeX virtual display, -1 when there is none
+    private volatile int vdMonitor = -1;  // the monitor showing it
+    private volatile String vdError = "not started";
+
+    /**
+     * One UI 8.5 route. Samsung's DisplayManager refuses tasks on every TYPE_EXTERNAL display, so
+     * the monitor can only mirror the phone. A virtual display FlipEx creates through Shizuku is
+     * not external and, made with system decorations, can host tasks: Android puts the DeX home,
+     * taskbar and wallpaper on it by itself (the same as scrcpy --new-display). A full-screen
+     * FlipEx window on the monitor shows it; while that window is there, Android pauses the
+     * mirror. Any failure removes the window, so the monitor mirrors the phone again.
+     */
+    private void startVirtualDesktop(int monitorId, String why) {
+        int[] size = dexSize(monitorId);
+        if (size == null) {
+            ownDesktopGiven.remove(monitorId);
+            return;
         }
-        String state = displayContentState(displayId);
-        // Read it again: on One UI 8 only setup-complete (Knox "DeX disabled") writes it, but a
-        // later One UI could set it back to mirror when a monitor connects.
-        String after = DexSettings.getMirrorSetting();
-        String r = "content mode (" + why + "): " + decors + "; " + mirror + "; " + state
-                + "; home " + (home ? "yes" : "no") + "; mirror after wait=" + after;
-        if (mirror.endsWith("-> 0") && "1".equals(after)) {
-            r += "; the phone set mirroring back on by itself";
-        } else if (!home && state.contains("canHostTasks false") && !"1".equals(after)) {
-            r += "; Android won't let this monitor host apps (mirror-only on this phone)";
-        }
-        Log.i("FlipEx", r);
-        appendDiag("giveOwnDesktop(" + displayId + "): " + r);
-        // No retry loop on display changes: our own density/size changes would re-trigger it.
-        // The Start DeX button tries again.
+        final int w = size[0] & ~1, h = size[1] & ~1, dpi = DexSettings.dexDensity(this);
+        appendDiag("giveOwnDesktop(" + monitorId + "): virtual display route (" + why + "), " + w + "x" + h
+                + " @" + dpi + "dpi; monitor " + displayContentState(monitorId));
+        handler.post(() -> {
+            Display monitor = dm.getDisplay(monitorId);
+            if (monitor == null || !running) {
+                ownDesktopGiven.remove(monitorId);
+                return;
+            }
+            boolean shown = dexScreen.show(monitor, w, h, new DexScreen.Callback() {
+                @Override
+                public void onSurface(android.view.Surface surface, int width, int height) {
+                    bg.execute(() -> {
+                        String r = Shell.dexDisplayCreate(surface, width, height, dpi, DexSettings.DEX_DISPLAY_NAME);
+                        Log.i("FlipEx", "dexDisplayCreate(" + monitorId + "): " + r);
+                        appendDiag("dexDisplayCreate on monitor " + monitorId + ": " + r);
+                        int id = -1;
+                        if (r.startsWith("ok ")) {
+                            try {
+                                id = Integer.parseInt(r.substring(3).trim());
+                            } catch (NumberFormatException ignored) {
+                            }
+                        }
+                        if (id >= 0) {
+                            vdMonitor = monitorId;
+                            vdId = id;
+                            vdError = "";
+                        } else {
+                            vdError = r;
+                            handler.post(() -> stopVirtualDesktop("create failed"));
+                        }
+                    });
+                }
+
+                @Override
+                public void onSurfaceGone() {
+                    stopVirtualDesktop("monitor window gone");
+                }
+            });
+            if (!shown) {
+                vdError = "FlipEx needs \"Display over other apps\"";
+                appendDiag("giveOwnDesktop(" + monitorId + "): couldn't show the DeX window: " + vdError);
+                ownDesktopGiven.remove(monitorId);
+            }
+        });
+    }
+
+    /**
+     * Main thread. Removes the window from the monitor (it mirrors the phone again) and releases
+     * the virtual display and every mouse pin in the shell. Safe to call more than once.
+     */
+    private void stopVirtualDesktop(String why) {
+        int mon = vdMonitor >= 0 ? vdMonitor : dexScreen.displayId();
+        boolean had = vdId >= 0 || dexScreen.isShowing();
+        vdId = -1;
+        vdMonitor = -1;
+        dexScreen.hide();
+        if (mon >= 0) ownDesktopGiven.remove(mon);
+        if (!had) return;
+        Log.i("FlipEx", "virtual display stopped: " + why);
+        bg.execute(() -> {
+            if (Shell.ready()) appendDiag("virtual display stopped (" + why + "): " + Shell.dexDisplayRelease());
+            pinnedTo = -1;
+        });
+        repinMice();
     }
 
     /**
@@ -394,9 +471,15 @@ public class FoldWatcherService extends Service
         wasFolded = folded;
     }
 
+    /** The display DeX runs on (FlipEx's virtual display on One UI 8.5, otherwise the monitor). */
     private Display newestExternal() {
-        List<Display> ext = DexSettings.externalDisplays(this);
-        return ext.isEmpty() ? null : ext.get(ext.size() - 1);
+        return DexSettings.dexDisplay(this);
+    }
+
+    /** The newest real monitor (HDMI, USB-C, scrcpy), never FlipEx's own virtual display. */
+    private Display newestMonitor() {
+        List<Display> m = DexSettings.monitors(this);
+        return m.isEmpty() ? null : m.get(m.size() - 1);
     }
 
     private void startTicking() {
@@ -697,12 +780,14 @@ public class FoldWatcherService extends Service
     private void repinMice() {
         bg.execute(() -> {
             if (!Shell.ready() || locked) return;
-            List<Display> ext = DexSettings.externalDisplays(this);
-            int target = ext.isEmpty() ? -1 : ext.get(ext.size() - 1).getDisplayId();
+            Display dex = DexSettings.dexDisplay(this);
+            int target = dex == null ? -1 : dex.getDisplayId();
             // Only onto a monitor that shows its own desktop. A monitor that mirrors the phone
             // has no windows of its own: a mouse pinned there clicks into nothing, which locks
             // out anyone controlling the phone through the mirror (e.g. a broken inner screen).
-            if (target >= 0 && !hasHome(target)) target = -1;
+            // FlipEx's own virtual display is always a desktop (even before its home appears,
+            // e.g. while Android asks which home to use there).
+            if (target >= 0 && !DexSettings.isFlipExDisplay(dex) && !hasHome(target)) target = -1;
             if (target == pinnedTo) return;
             if (target < 0 && pinnedTo < 0) return;
             String r = Shell.pinMice(target);
@@ -714,6 +799,9 @@ public class FoldWatcherService extends Service
 
     @Override
     public void onShellChanged() {
+        // Shizuku went away: the shell process released the virtual display with it. Take the
+        // window off the monitor so it mirrors the phone again; reconnecting sets DeX up again.
+        if (!Shell.ready()) handler.post(() -> stopVirtualDesktop("Shizuku disconnected"));
         bg.execute(() -> DexSettings.grantSelfWriteSettings(this));
         repinMice();
         syncMonitors();
@@ -777,6 +865,8 @@ public class FoldWatcherService extends Service
         handler.postDelayed(() -> bg.execute(() -> {
             Display d = dm.getDisplay(displayId);
             if (d == null || !Shell.ready() || !isDexMonitor(displayId) || hasHome(displayId)) return;
+            if (DexSettings.isFlipExDisplay(d)) return;  // FlipEx's own display: set up by itself
+            if (DexSettings.useContentModeRoute(this) && vdId >= 0 && vdMonitor == displayId) return;
             startDexNow(d, true);
         }), 5000);
         evaluate();
@@ -787,6 +877,10 @@ public class FoldWatcherService extends Service
 
     @Override
     public void onDisplayRemoved(int displayId) {
+        // The monitor showing FlipEx's virtual display, or that display itself, went away.
+        if (displayId == vdMonitor || displayId == vdId || displayId == dexScreen.displayId()) {
+            stopVirtualDesktop("display " + displayId + " removed");
+        }
         ownDesktopGiven.remove(displayId);
         evaluate();
         checkLock();  // drop the lock cover if its monitor is gone
@@ -813,6 +907,11 @@ public class FoldWatcherService extends Service
         }
         if (curtain != null) curtain.hide();
         if (strip != null) strip.hide();
+        if (dexScreen != null && (dexScreen.isShowing() || vdId >= 0)) {
+            dexScreen.hide();
+            vdId = -1;
+            bg.execute(() -> Log.i("FlipEx", "session ended: " + Shell.dexDisplayRelease()));
+        }
         Shell.removeListener(this);
         if (pinnedTo >= 0) bg.execute(() -> Shell.pinMice(-1));
         // The session owns the DeX features while it runs; put them back when it ends.

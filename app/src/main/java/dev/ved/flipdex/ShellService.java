@@ -1,5 +1,6 @@
 package dev.ved.flipdex;
 
+import android.os.IBinder;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.InputEvent;
@@ -58,9 +59,150 @@ public class ShellService extends IShellService.Stub {
 
     @Override
     public void destroy() {
+        dexDisplayRelease();
         pinMice(-1);
         mouseClose();
         System.exit(0);
+    }
+
+    // ---- DeX on a virtual display (One UI 8.5) ----
+
+    // DisplayManager.VIRTUAL_DISPLAY_FLAG_*: the set scrcpy 5.0.1 uses for --new-display with
+    // system decorations, minus ROTATES_WITH_CONTENT (a monitor stays landscape) and
+    // DESTROY_CONTENT_ON_REMOVAL (apps move back to the phone when the display goes).
+    private static final int DEX_DISPLAY_FLAGS =
+            1            // PUBLIC
+            | (1 << 1)   // PRESENTATION
+            | (1 << 3)   // OWN_CONTENT_ONLY: never a mirror
+            | (1 << 6)   // SUPPORTS_TOUCH
+            | (1 << 9)   // SHOULD_SHOW_SYSTEM_DECORATIONS: home, taskbar, wallpaper -> canHostTasks
+            | (1 << 10)  // TRUSTED
+            | (1 << 11)  // OWN_DISPLAY_GROUP
+            | (1 << 12)  // ALWAYS_UNLOCKED (FlipEx's lock cover hides it while locked)
+            | (1 << 13)  // TOUCH_FEEDBACK_DISABLED
+            | (1 << 14)  // OWN_FOCUS
+            | (1 << 15); // DEVICE_DISPLAY_GROUP
+
+    private Object dexCallback;      // IVirtualDisplayCallback proxy; its binder is the display's token
+    private int dexDisplayId = -1;
+    private IBinder dexOwner;
+    private IBinder.DeathRecipient dexOwnerDeath;
+
+    /**
+     * Creates the DeX virtual display through IDisplayManager directly, the call
+     * DisplayManagerGlobal makes for apps. This process has no Context, so the callback Android
+     * wants is a dynamic proxy whose binder is a plain Binder: Android only uses it as the
+     * display's token (and links to its death: if this process dies, the display goes too).
+     */
+    @Override
+    public synchronized String dexDisplayCreate(android.view.Surface surface, int width, int height,
+            int dpi, String name, IBinder owner) {
+        dexDisplayRelease();
+        if (android.os.Build.VERSION.SDK_INT < 33) return "virtual display needs Android 13+";
+        try {
+            Class<?> cbClass = Class.forName("android.hardware.display.IVirtualDisplayCallback");
+            final android.os.Binder token = new android.os.Binder();
+            Object cb = java.lang.reflect.Proxy.newProxyInstance(cbClass.getClassLoader(),
+                    new Class<?>[]{cbClass}, (proxy, m, a) -> {
+                        switch (m.getName()) {
+                            case "asBinder": return token;
+                            case "hashCode": return System.identityHashCode(proxy);
+                            case "equals": return proxy == a[0];
+                            case "toString": return "FlipExDexDisplayCallback";
+                            default: return null;  // onPaused/onResumed/onStopped: nothing to do
+                        }
+                    });
+            android.hardware.display.VirtualDisplayConfig config =
+                    new android.hardware.display.VirtualDisplayConfig.Builder(name, width, height, dpi)
+                            .setFlags(DEX_DISPLAY_FLAGS)
+                            .setSurface(surface)
+                            .build();
+            Object dm = displayManagerService();
+            Method create = null;
+            for (Method m : dm.getClass().getMethods()) {
+                if (m.getName().equals("createVirtualDisplay") && m.getParameterCount() == 4) create = m;
+            }
+            if (create == null) return "no IDisplayManager.createVirtualDisplay(4)";
+            int id = (Integer) create.invoke(dm, config, cb, null, "com.android.shell");
+            if (id < 0) return "createVirtualDisplay returned " + id;
+            dexCallback = cb;
+            dexDisplayId = id;
+            if (owner != null) {
+                IBinder.DeathRecipient death = () -> {
+                    synchronized (ShellService.this) {
+                        dexDisplayRelease();
+                        pinMice(-1);
+                        mouseClose();
+                    }
+                };
+                try {
+                    owner.linkToDeath(death, 0);
+                    dexOwner = owner;
+                    dexOwnerDeath = death;
+                } catch (android.os.RemoteException alreadyDead) {
+                    death.binderDied();
+                    return "FlipEx went away while the display was created";
+                }
+            }
+            return "ok " + id;
+        } catch (Throwable t) {
+            Throwable c = t;
+            StringBuilder chain = new StringBuilder("create failed:");
+            for (int i = 0; c != null && i < 4; i++, c = c.getCause()) chain.append(' ').append(c);
+            return chain.toString();
+        }
+    }
+
+    /**
+     * Releases the DeX virtual display and every mouse pin, so no input port stays tied to a
+     * display that no longer exists (that disables the mouse: the tester's original bug).
+     */
+    @Override
+    public synchronized String dexDisplayRelease() {
+        if (dexOwner != null && dexOwnerDeath != null) {
+            try {
+                dexOwner.unlinkToDeath(dexOwnerDeath, 0);
+            } catch (RuntimeException ignored) {
+            }
+        }
+        dexOwner = null;
+        dexOwnerDeath = null;
+        if (dexCallback == null) return "no virtual display";
+        int id = dexDisplayId;
+        String pins = pinMice(-1);
+        if (attachedUniqueId != null) {
+            try {
+                dissociate(INPUT_PORT);
+            } catch (Throwable ignored) {
+            }
+            attachedUniqueId = null;
+        }
+        String r;
+        try {
+            Object dm = displayManagerService();
+            Method release = null;
+            for (Method m : dm.getClass().getMethods()) {
+                if (m.getName().equals("releaseVirtualDisplay") && m.getParameterCount() == 1) release = m;
+            }
+            if (release == null) {
+                r = "no releaseVirtualDisplay";
+            } else {
+                release.invoke(dm, dexCallback);
+                r = "released display " + id;
+            }
+        } catch (Throwable t) {
+            r = "release failed: " + cause(t);
+        }
+        dexCallback = null;
+        dexDisplayId = -1;
+        return r + "; " + pins;
+    }
+
+    private static Object displayManagerService() throws Exception {
+        Object binder = Class.forName("android.os.ServiceManager")
+                .getMethod("getService", String.class).invoke(null, "display");
+        return Class.forName("android.hardware.display.IDisplayManager$Stub")
+                .getMethod("asInterface", IBinder.class).invoke(null, binder);
     }
 
     @Override

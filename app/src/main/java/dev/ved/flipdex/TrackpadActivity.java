@@ -415,9 +415,9 @@ public class TrackpadActivity extends Activity {
         io.execute(() -> {
             if (!Shell.mouseOpen()) return;
             // Pin the pointer to the DeX display (the newest external display: scrcpy, HDMI or TV).
-            List<Display> ext = DexSettings.externalDisplays(this);
-            if (!ext.isEmpty()) {
-                int id = ext.get(ext.size() - 1).getDisplayId();
+            Display dex = DexSettings.dexDisplay(this);  // FlipEx's DeX display first, by name
+            if (dex != null) {
+                int id = dex.getDisplayId();
                 dexDisplay = id;
                 Log.i("FlipEx", "mouseAttach(" + id + "): " + Shell.mouseAttach(id));
             } else {

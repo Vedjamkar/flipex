@@ -29,7 +29,7 @@ public final class Shell {
                 .daemon(false)
                 .processNameSuffix("shell")
                 .debuggable(false)
-                .version(14);
+                .version(15);
     }
 
     private static final ServiceConnection CONNECTION = new ServiceConnection() {
@@ -203,6 +203,30 @@ public final class Shell {
     }
 
     /** Gives a display its own home, wallpaper and system bars instead of mirroring the phone. */
+    /** Lives as long as this app process: the shell service releases the DeX display if it dies. */
+    private static final android.os.Binder APP_TOKEN = new android.os.Binder();
+
+    /** Creates the DeX virtual display on a surface. Returns "ok <displayId>" or why not. */
+    public static String dexDisplayCreate(android.view.Surface surface, int width, int height, int dpi, String name) {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.dexDisplayCreate(surface, width, height, dpi, name, APP_TOKEN);
+        } catch (RemoteException e) {
+            return "remote error";
+        }
+    }
+
+    public static String dexDisplayRelease() {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.dexDisplayRelease();
+        } catch (RemoteException e) {
+            return "remote error";
+        }
+    }
+
     public static String setSystemDecors(int displayId, boolean show) {
         IShellService s = service;
         if (s == null) return "no shell";

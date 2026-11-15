@@ -148,24 +148,6 @@ public final class DexSettings {
         return out == null ? "?" : out.trim();
     }
 
-    /**
-     * Sets "own desktop" (0) if Android is set to mirror (1) or the setting was never written
-     * ("null"). AOSP reads a missing value as 0, but a One UI 8.5 Flip 5 with no value kept its
-     * monitor at canHostTasks false (mirror), so a missing value is written out as 0 too. The old
-     * value is saved and put back when DeX on monitors is turned off ("null" deletes it again).
-     * Never switches it off and back on (a quick off/on made Samsung's DeX home quit in testing).
-     * A failed read ("?") is left alone. Returns what it did, for the log.
-     */
-    static String allowOwnDesktop(Context c) {
-        String before = getMirrorSetting();
-        boolean unset = "null".equals(before) || before.isEmpty();
-        if (!"1".equals(before) && !unset) return MIRROR_BUILT_IN + "=" + before + " (left as is)";
-        android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
-        if (!p.contains(KEY_MIRROR_SAVED)) p.edit().putString(KEY_MIRROR_SAVED, unset ? "null" : before).apply();
-        Shell.exec("settings put secure " + MIRROR_BUILT_IN + " 0");
-        return MIRROR_BUILT_IN + " " + (unset ? "unset" : before) + " -> " + getMirrorSetting();
-    }
-
     /** Puts mirror_built_in_display back to what it was before FlipEx changed it (if it did). */
     static void restoreMirrorSetting(Context c) {
         android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
@@ -275,6 +257,31 @@ public final class DexSettings {
     }
 
     /** External (non built-in) displays that are currently connected. */
+    /** Name of FlipEx's own DeX virtual display (One UI 8.5 route). */
+    static final String DEX_DISPLAY_NAME = "FlipEx DeX";
+
+    static boolean isFlipExDisplay(Display d) {
+        return d != null && DEX_DISPLAY_NAME.equals(d.getName());
+    }
+
+    /** Monitors and TVs only (HDMI, USB-C, scrcpy), without FlipEx's own DeX virtual display. */
+    static List<Display> monitors(Context c) {
+        List<Display> out = new ArrayList<>();
+        for (Display d : externalDisplays(c)) if (!isFlipExDisplay(d)) out.add(d);
+        return out;
+    }
+
+    /**
+     * The display DeX runs on: FlipEx's virtual display when it exists (One UI 8.5), otherwise the
+     * newest monitor. By name, not id order: a monitor plugged in again gets a higher id than the
+     * virtual display, and the mouse, trackpad and lock cover must stay on DeX.
+     */
+    static Display dexDisplay(Context c) {
+        List<Display> ext = externalDisplays(c);
+        for (Display d : ext) if (isFlipExDisplay(d)) return d;
+        return ext.isEmpty() ? null : ext.get(ext.size() - 1);
+    }
+
     public static List<Display> externalDisplays(Context c) {
         List<Display> out = new ArrayList<>();
         DisplayManager dm = c.getSystemService(DisplayManager.class);
