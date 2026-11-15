@@ -177,6 +177,16 @@ public class FoldWatcherService extends Service
                 + " -c android.intent.category.SECONDARY_HOME");
         boolean saved = home != null && home.trim().endsWith(DexSettings.DEX_HOME);
         if (auto && !saved) return null;
+        // The button needs "DeX on monitors": without it every step below skips this monitor
+        // (seen on a One UI 8.5 tester's phone: the button did nothing). Pressing it turns it on,
+        // the same as the switch.
+        if (!auto && !DexSettings.isDesktopOn(this)) {
+            boolean ok = DexSettings.setDesktop(this, true);
+            appendDiag("startDex(" + id + "): DeX on monitors was off; turned on " + (ok ? "ok" : "FAILED"));
+        }
+        appendDiag("startDex(" + id + (auto ? ", auto" : "") + "): SECONDARY_HOME="
+                + (home == null ? "?" : home.trim().replace('\n', ' ')) + "; home on monitor before="
+                + hasHome(id));
 
         // 1. The settings Samsung's launcher reads (wallpaper, full taskbar), before it starts.
         if (DexSettings.isDexFeaturesOn(this)) {
@@ -195,6 +205,7 @@ public class FoldWatcherService extends Service
         //    name the DeX home directly: that makes it an ordinary app window with no wallpaper.
         if (!hasHome(id)) {
             if (!saved) {
+                appendDiag("startDex(" + id + "): no home on the monitor and no saved DeX home choice");
                 return "Android hasn't been told which home to use on monitors. Unplug and replug the "
                         + "monitor; if Android asks, pick One UI Home → Always.";
             }
@@ -213,7 +224,7 @@ public class FoldWatcherService extends Service
             Log.w("FlipEx", "display " + id + " still mirrors after Start DeX");
             repinMice();
             String hint = DexSettings.useContentModeRoute(this)
-                    ? "If Settings → Connected devices → Samsung DeX → Connected display offers Extend, "
+                    ? "If searching Settings for \"Connected display\" finds an Extend option, "
                             + "pick it and replug the monitor. "
                     : "";
             return "Android kept " + d.getName() + " mirroring the phone, so DeX couldn't start. "
@@ -222,6 +233,7 @@ public class FoldWatcherService extends Service
         }
 
         // 5. Everything else a monitor gets: desk (taskbar apps), no phone keyboard, mice.
+        appendDiag("startDex(" + id + "): monitor has its own home; DeX started");
         imeHidden.remove(id);
         handler.postDelayed(() -> {
             hideImeOnDex();
@@ -345,16 +357,7 @@ public class FoldWatcherService extends Service
     private static boolean hasHome(int displayId) {
         String dump = Shell.exec("dumpsys activity activities");
         if (dump == null) return true;  // can't tell: do nothing
-        boolean in = false;
-        for (String raw : dump.split("\n")) {
-            String line = raw.trim();
-            if (line.startsWith("Display #")) {
-                in = line.startsWith("Display #" + displayId + " ");
-                continue;
-            }
-            if (in && line.contains("type=home")) return true;
-        }
-        return false;
+        return ActivityDump.hasHome(dump, displayId);
     }
 
     /** The cover display: a built-in display other than the main one (id 1 on the Flip 5). */
@@ -702,7 +705,9 @@ public class FoldWatcherService extends Service
             if (target >= 0 && !hasHome(target)) target = -1;
             if (target == pinnedTo) return;
             if (target < 0 && pinnedTo < 0) return;
-            Log.i("FlipEx", "pinMice(" + target + "): " + Shell.pinMice(target));
+            String r = Shell.pinMice(target);
+            Log.i("FlipEx", "pinMice(" + target + "): " + r);
+            appendDiag("pinMice(" + target + "): " + r);
             pinnedTo = target;
         });
     }

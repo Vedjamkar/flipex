@@ -149,17 +149,21 @@ public final class DexSettings {
     }
 
     /**
-     * Sets "own desktop" (0) if Android is set to mirror (1). The old value is saved and put back
-     * when DeX on monitors is turned off. Never switches it off and back on (a quick off/on
-     * made Samsung's DeX home quit in testing). Returns what it did, for the log.
+     * Sets "own desktop" (0) if Android is set to mirror (1) or the setting was never written
+     * ("null"). AOSP reads a missing value as 0, but a One UI 8.5 Flip 5 with no value kept its
+     * monitor at canHostTasks false (mirror), so a missing value is written out as 0 too. The old
+     * value is saved and put back when DeX on monitors is turned off ("null" deletes it again).
+     * Never switches it off and back on (a quick off/on made Samsung's DeX home quit in testing).
+     * A failed read ("?") is left alone. Returns what it did, for the log.
      */
     static String allowOwnDesktop(Context c) {
         String before = getMirrorSetting();
-        if (!"1".equals(before)) return MIRROR_BUILT_IN + "=" + before + " (left as is)";
+        boolean unset = "null".equals(before) || before.isEmpty();
+        if (!"1".equals(before) && !unset) return MIRROR_BUILT_IN + "=" + before + " (left as is)";
         android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
-        if (!p.contains(KEY_MIRROR_SAVED)) p.edit().putString(KEY_MIRROR_SAVED, before).apply();
+        if (!p.contains(KEY_MIRROR_SAVED)) p.edit().putString(KEY_MIRROR_SAVED, unset ? "null" : before).apply();
         Shell.exec("settings put secure " + MIRROR_BUILT_IN + " 0");
-        return MIRROR_BUILT_IN + " 1 -> " + getMirrorSetting();
+        return MIRROR_BUILT_IN + " " + (unset ? "unset" : before) + " -> " + getMirrorSetting();
     }
 
     /** Puts mirror_built_in_display back to what it was before FlipEx changed it (if it did). */

@@ -92,12 +92,20 @@ final class Diagnostics {
                 + "'Display: mDisplayId|init=|mNavigationBar=|mBottomGestureHost|mWallpaperTarget' | head -60", 20000);
         cmd(r, "Windows (bars, homes, wallpapers)", "dumpsys window windows | grep -E "
                 + "'Window #.*(NavigationBar|DexTaskbar|Launcher|Wallpaper|FlipEx)' | head -40", 10000);
-        cmd(r, "Activities per screen", "dumpsys activity activities | grep -E "
-                + "'^Display #|type=home|dw=activatable' | cut -c1-200 | head -60", 20000);
+        // Only the per-screen list: after it, "ActivityTaskSupervisor state:" lists every
+        // screen's tasks again, which made a mirrored monitor look like it had a home.
+        cmd(r, "Activities per screen", "dumpsys activity activities | sed '/^ActivityTaskSupervisor state/,$d'"
+                + " | grep -E '^Display #|type=home|dw=activatable' | cut -c1-200 | head -60; "
+                + "echo SECONDARY_HOME=$(cmd package resolve-activity --brief -a android.intent.action.MAIN"
+                + " -c android.intent.category.SECONDARY_HOME | tail -n 1)", 20000);
         cmd(r, "Window shell desks", "wm shell dump 2>&1 | grep -E "
                 + "'desktopExternalDisplayId|inDesktopWindowing|Display #[0-9]+:|activeDesk|Desk #|freeformTasksInZOrder'"
                 + " | head -80", 15000);
         cmd(r, "Window shell commands", "wm shell help 2>&1 | grep -A40 desktopmode | head -45", 6000);
+        // FlipEx's own lines from the whole log buffer: the filtered window below can be only
+        // seconds long on a busy phone and miss the Start DeX press.
+        cmd(r, "FlipEx and mirror log (whole buffer)", "logcat -d -v time | grep -E "
+                + "'FlipEx|mirrorBuiltInDisplay|Set canHostTasks' | tail -n 300", 40000);
         cmd(r, "Recent log (filtered)", "logcat -d -v time -t 6000 | grep -E '" + LOG_FILTER + "'"
                 + " | grep -vE 'Collecting in transition|BLAST|SurfaceFlinger' | tail -n 700", 300000);
         return r.toString();
