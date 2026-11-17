@@ -57,7 +57,10 @@ final class Diagnostics {
                 .append(" shizukuPermission=").append(Shell.hasPermission())
                 .append(" shellReady=").append(Shell.ready()).append('\n')
                 .append("writeSecureSettings=").append(DexSettings.canWriteSettings(c))
-                .append(" overlay=").append(Settings.canDrawOverlays(c)).append('\n')
+                .append(" overlay=").append(Settings.canDrawOverlays(c))
+                .append(" dexWindow=").append(DexSettings.dexWindowName(DexSettings.dexWindowMode(c)))
+                .append(" a11yEnabled=").append(DexSettings.isA11yEnabled(c))
+                .append(" a11yRunning=").append(DexA11yService.get() != null).append('\n')
                 .append("desktopOn=").append(DexSettings.isDesktopOn(c))
                 .append(" dexFeatures=").append(DexSettings.isDexFeaturesOn(c))
                 .append(" session=").append(FoldWatcherService.isRunning()).append('\n');
@@ -94,6 +97,13 @@ final class Diagnostics {
                 + "'Window #.*(NavigationBar|DexTaskbar|Launcher|Wallpaper|FlipEx)' | head -40", 10000);
         // Only the per-screen list: after it, "ActivityTaskSupervisor state:" lists every
         // screen's tasks again, which made a mirrored monitor look like it had a home.
+        // A window here (Settings, a permission or install screen) makes Android hide every app
+        // overlay on every screen, FlipEx's DeX window on the monitor included.
+        cmd(r, "Windows hiding app overlays", "dumpsys window visible | sed -n '/Hiding System Alert Windows/,$p'"
+                + " | grep -E '^  #' | head -10; echo '(empty = none)'", 3000);
+        // Which layer stack each screen shows, and whether FlipEx's shell layer is on the monitor's.
+        cmd(r, "SurfaceFlinger screens and DeX layer", "dumpsys SurfaceFlinger | grep -E "
+                + "'^Display [0-9]+ \\(|layerFilter=|FlipEx DeX screen' | cut -c1-200 | head -30", 6000);
         cmd(r, "Activities per screen", "dumpsys activity activities | sed '/^ActivityTaskSupervisor state/,$d'"
                 + " | grep -E '^Display #|type=home|dw=activatable' | cut -c1-200 | head -60; "
                 + "echo SECONDARY_HOME=$(cmd package resolve-activity --brief -a android.intent.action.MAIN"
@@ -106,7 +116,8 @@ final class Diagnostics {
         // seconds long on a busy phone and miss the Start DeX press.
         cmd(r, "FlipEx and mirror log (whole buffer)", "logcat -d -v time -s FlipEx:V "
                 + "DisplayManagerService:I LogicalDisplay:I | grep -E "
-                + "'FlipEx|mirrorBuiltInDisplay|canHostTasks|hasContent' | tail -n 300", 40000);
+                + "'FlipEx|mirrorBuiltInDisplay|canHostTasks|hasContent|Display device (added|removed)'"
+                + " | cut -c1-400 | tail -n 300", 40000);
         cmd(r, "Recent log (filtered)", "logcat -d -v time -t 6000 | grep -E '" + LOG_FILTER + "'"
                 + " | grep -vE 'Collecting in transition|BLAST|SurfaceFlinger' | tail -n 700", 300000);
         return r.toString();

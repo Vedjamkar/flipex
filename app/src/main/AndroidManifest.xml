@@ -83,6 +83,21 @@
         <!-- Pictures copied on the Mac, for pasting into the DeX window. Only the adb shell
              (which holds WRITE_SECURE_SETTINGS) can upload; apps read a picture only through
              the grant the clipboard gives when they paste it. -->
+        <!-- Optional "Accessibility" DeX window mode: owns the DeX window on the monitor (an
+             accessibility overlay, which Settings doesn't hide). Reads nothing. -->
+        <service
+            android:name=".DexA11yService"
+            android:exported="false"
+            android:label="FlipEx DeX screen"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/dex_a11y" />
+        </service>
+
         <provider
             android:name=".MacClipProvider"
             android:authorities="dev.ved.flipdex.clip"

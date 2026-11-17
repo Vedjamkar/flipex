@@ -137,6 +137,55 @@ public final class DexSettings {
     }
 
     /**
+     * Who draws the DeX screen on the monitor (virtual display route):
+     * AUTO tries the shell process, then the accessibility service if it's already on, then the
+     * app. SHELL: a SurfaceFlinger layer owned by the Shizuku process (Settings can't hide it). A11Y: FlipEx's accessibility
+     * service, turned on by FlipEx when chosen (Settings can't hide it either). APP: an ordinary
+     * app overlay (hidden while Settings is open: the monitor mirrors the phone meanwhile).
+     */
+    static final int WINDOW_AUTO = 0, WINDOW_SHELL = 1, WINDOW_A11Y = 2, WINDOW_APP = 3;
+    private static final String KEY_DEX_WINDOW = "dex_window";
+
+    static int dexWindowMode(Context c) {
+        return c.getSharedPreferences(PREFS, 0).getInt(KEY_DEX_WINDOW, WINDOW_AUTO);
+    }
+
+    static void setDexWindowMode(Context c, int mode) {
+        c.getSharedPreferences(PREFS, 0).edit().putInt(KEY_DEX_WINDOW, mode).apply();
+    }
+
+    static String dexWindowName(int mode) {
+        switch (mode) {
+            case WINDOW_SHELL: return "Shizuku";
+            case WINDOW_A11Y: return "Accessibility";
+            case WINDOW_APP: return "App overlay";
+            default: return "Automatic";
+        }
+    }
+
+    static final String A11Y_COMPONENT = "dev.ved.flipdex/dev.ved.flipdex.DexA11yService";
+
+    static boolean isA11yEnabled(Context c) {
+        String on = Settings.Secure.getString(c.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return on != null && (on.contains(A11Y_COMPONENT) || on.contains("dev.ved.flipdex/.DexA11yService"));
+    }
+
+    /** Turns FlipEx's accessibility service on (needs WRITE_SECURE_SETTINGS). Keeps other services. */
+    static boolean enableA11y(Context c) {
+        if (isA11yEnabled(c)) return true;
+        try {
+            android.content.ContentResolver r = c.getContentResolver();
+            String on = Settings.Secure.getString(r, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            String next = on == null || on.isEmpty() ? A11Y_COMPONENT : on + ":" + A11Y_COMPONENT;
+            Settings.Secure.putString(r, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, next);
+            Settings.Secure.putInt(r, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+            return true;
+        } catch (SecurityException e) {
+            return false;
+        }
+    }
+
+    /**
      * Android 16 QPR2's switch between mirroring the phone on every connected display (1) and giving
      * each its own desktop (0, AOSP's default). Android watches it and applies it straight away.
      */

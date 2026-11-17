@@ -51,7 +51,7 @@ public class MainActivity extends Activity implements Shell.Listener {
     private static final int GREEN = 0xFF2DB55D, AMBER = 0xFFF0A020, GREY = 0xFF8E8E93, RED = 0xFFE5484D;
 
     private LinearLayout setupCard;
-    private TextView setupText, statusTitle, statusDetail, hapticsValue;
+    private TextView setupText, statusTitle, statusDetail, hapticsValue, dexWindowValue;
     private View statusDot, startBtn, overlayRow, shizukuRow;
     private Switch desktopSw, sessionSw, featuresSw, stripSw, overlayDisplaySw, contentModeSw;
     private TextView contentModeSummary;
@@ -194,6 +194,16 @@ public class MainActivity extends Activity implements Shell.Listener {
                 }));
         contentModeSummary = (TextView) ((LinearLayout) ((LinearLayout) contentModeSw.getParent())
                 .getChildAt(0)).getChildAt(1);
+        divider(lab);
+        View windowRow = actionRow(lab, "DeX window owner",
+                "What draws DeX on the monitor (One UI 8.5 method). Shizuku and Accessibility stay "
+                        + "on screen while Settings is open; App overlay doesn't. Tap to change, then replug.",
+                colText, v -> {
+                    int next = (DexSettings.dexWindowMode(this) + 1) % 4;  // Auto → Shizuku → A11y → App
+                    DexSettings.setDexWindowMode(this, next);
+                    refresh();
+                });
+        dexWindowValue = label((LinearLayout) windowRow, "", 15, colAccent, false);
 
         LinearLayout more = section(col, "More");
         View check = actionRow(more, "Check for updates", "", colText, v -> checkUpdate(true));
@@ -341,6 +351,7 @@ public class MainActivity extends Activity implements Shell.Listener {
                         : "Set by you (this phone: " + DexSettings.oneUiName() + "). Restore stock settings returns it to automatic."));
                 enableRow(featuresSw, shell);
                 hapticsValue.setText(Haptics.name(Haptics.getLevel(this)));
+                dexWindowValue.setText(DexSettings.dexWindowName(DexSettings.dexWindowMode(this)));
             });
         });
     }

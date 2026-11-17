@@ -29,7 +29,7 @@ public final class Shell {
                 .daemon(false)
                 .processNameSuffix("shell")
                 .debuggable(false)
-                .version(15);
+                .version(16);
     }
 
     private static final ServiceConnection CONNECTION = new ServiceConnection() {
@@ -212,6 +212,57 @@ public final class Shell {
         if (s == null) return "no shell";
         try {
             return s.dexDisplayCreate(surface, width, height, dpi, name, APP_TOKEN);
+        } catch (RemoteException e) {
+            return "remote error";
+        }
+    }
+
+    /** See IShellService.dexScreenShow: the DeX window owned by the shell process. */
+    public static String dexScreenShow(int monitorId, int width, int height, int dpi, String name) {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.dexScreenShow(monitorId, width, height, dpi, name, APP_TOKEN);
+        } catch (RemoteException e) {
+            return "remote error";
+        }
+    }
+
+    public static String dexScreenState() {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.dexScreenState();
+        } catch (RemoteException e) {
+            return "remote error";
+        }
+    }
+
+    public static String dexScreenUpdate() {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.dexScreenUpdate();
+        } catch (RemoteException e) {
+            return "remote error";
+        }
+    }
+
+    public static String dexScreenSetVisible(boolean visible) {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.dexScreenSetVisible(visible);
+        } catch (RemoteException e) {
+            return "remote error";
+        }
+    }
+
+    public static String dexScreenHide() {
+        IShellService s = service;
+        if (s == null) return "no shell";
+        try {
+            return s.dexScreenHide();
         } catch (RemoteException e) {
             return "remote error";
         }

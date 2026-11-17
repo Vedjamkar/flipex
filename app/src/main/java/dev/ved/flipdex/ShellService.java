@@ -54,11 +54,17 @@ public class ShellService extends IShellService.Stub {
     private String attachedUniqueId;
     private final List<String> pinnedPorts = new ArrayList<>();
 
+    private final ShellDexLayer dexLayer = new ShellDexLayer();
+    private volatile String dexScreenState = "none";
+    private IBinder screenOwner;
+    private IBinder.DeathRecipient screenOwnerDeath;
+
     public ShellService() {
     }
 
     @Override
     public void destroy() {
+        dexScreenHide();
         dexDisplayRelease();
         pinMice(-1);
         mouseClose();
@@ -151,6 +157,74 @@ public class ShellService extends IShellService.Stub {
             for (int i = 0; c != null && i < 4; i++, c = c.getCause()) chain.append(' ').append(c);
             return chain.toString();
         }
+    }
+
+    // ---- The DeX picture on the monitor, a layer owned by this process (see ShellDexLayer) ----
+
+    @Override
+    public String dexScreenShow(int monitorId, int width, int height, int dpi, String name, IBinder owner) {
+        dexScreenHide();
+        if (owner != null) {
+            IBinder.DeathRecipient death = () -> {
+                dexScreenHide();
+                synchronized (ShellService.this) {
+                    pinMice(-1);
+                    mouseClose();
+                }
+            };
+            try {
+                owner.linkToDeath(death, 0);
+                screenOwner = owner;
+                screenOwnerDeath = death;
+            } catch (android.os.RemoteException alreadyDead) {
+                return "FlipEx went away";
+            }
+        }
+        android.view.Surface surface;
+        try {
+            surface = dexLayer.show(monitorId, width, height);
+        } catch (Throwable t) {
+            dexScreenState = "error layer: " + cause(t);
+            return dexScreenState;
+        }
+        String r = dexDisplayCreate(surface, width, height, dpi, name, null);
+        if (!r.startsWith("ok ")) dexLayer.hide();
+        dexScreenState = r.startsWith("ok ") ? r : "error " + r;
+        return dexScreenState;
+    }
+
+    @Override
+    public String dexScreenSetVisible(boolean visible) {
+        return dexLayer.setVisible(visible);
+    }
+
+    @Override
+    public String dexScreenUpdate() {
+        return dexLayer.update();
+    }
+
+    @Override
+    public String dexScreenState() {
+        return dexScreenState;
+    }
+
+    /** Releases the display, then takes the layer off the monitor (it mirrors the phone again). */
+    @Override
+    public String dexScreenHide() {
+        IBinder o = screenOwner;
+        IBinder.DeathRecipient d = screenOwnerDeath;
+        screenOwner = null;
+        screenOwnerDeath = null;
+        if (o != null && d != null) {
+            try {
+                o.unlinkToDeath(d, 0);
+            } catch (RuntimeException ignored) {
+            }
+        }
+        String r = dexDisplayRelease();
+        dexLayer.hide();
+        dexScreenState = "none";
+        return r;
     }
 
     /**

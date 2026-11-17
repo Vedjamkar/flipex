@@ -45,6 +45,12 @@ public class FoldWatcherService extends Service
     private InputManager im;
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
     private int pinnedTo = -1;
+    // Who is hiding FlipEx's overlays right now ("" = nobody). Android hides every app overlay,
+    // on every screen, while a window such as Settings asks it to. The DeX window on the monitor
+    // is one, so the monitor falls back to mirroring. Main thread for the tick count.
+    private int hideCheckTick;
+    private volatile String hidingOverlays = "";
+    private volatile int vdWindow = -1;  // DexSettings.WINDOW_*: who owns the DeX window now
     private Boolean dexFeatures;  // last value applied (null = never touched: leave stock alone)
     private final java.util.Set<Integer> imeHidden = new java.util.HashSet<>();  // bg thread only
 
@@ -350,37 +356,54 @@ public class FoldWatcherService extends Service
             return;
         }
         final int w = size[0] & ~1, h = size[1] & ~1, dpi = DexSettings.dexDensity(this);
+        int mode = DexSettings.dexWindowMode(this);
         appendDiag("giveOwnDesktop(" + monitorId + "): virtual display route (" + why + "), " + w + "x" + h
-                + " @" + dpi + "dpi; monitor " + displayContentState(monitorId));
+                + " @" + dpi + "dpi, window " + DexSettings.dexWindowName(mode) + "; monitor "
+                + displayContentState(monitorId));
+        // 1. The shell process owns the window: Settings can't hide it, nothing to turn on.
+        if (mode == DexSettings.WINDOW_AUTO || mode == DexSettings.WINDOW_SHELL) {
+            if (startShellWindow(monitorId, w, h, dpi)) return;
+        }
+        // 2. FlipEx's accessibility service owns it: chosen by the user (FlipEx turns the service
+        //    on), or in automatic mode when the user already turned it on.
+        boolean a11y = false;
+        if (mode == DexSettings.WINDOW_A11Y) {
+            boolean ok = DexSettings.enableA11y(this);
+            for (int i = 0; i < 20 && DexA11yService.get() == null; i++) android.os.SystemClock.sleep(150);
+            a11y = DexA11yService.get() != null;
+            if (!a11y) appendDiag("accessibility service not running (enabled " + ok + "); app overlay instead");
+        } else if (mode == DexSettings.WINDOW_AUTO) {
+            a11y = DexA11yService.get() != null;
+        }
+        // 3. Otherwise FlipEx's own app overlay (hidden while Settings is open).
+        final boolean useA11y = a11y;
         handler.post(() -> {
             Display monitor = dm.getDisplay(monitorId);
             if (monitor == null || !running) {
                 ownDesktopGiven.remove(monitorId);
                 return;
             }
-            boolean shown = dexScreen.show(monitor, w, h, new DexScreen.Callback() {
+            boolean shown = dexScreen.show(monitor, w, h, useA11y, new DexScreen.Callback() {
                 @Override
                 public void onSurface(android.view.Surface surface, int width, int height) {
-                    bg.execute(() -> {
+                    // Not on bg: Start DeX waits there for this display.
+                    new Thread(() -> {
                         String r = Shell.dexDisplayCreate(surface, width, height, dpi, DexSettings.DEX_DISPLAY_NAME);
-                        Log.i("FlipEx", "dexDisplayCreate(" + monitorId + "): " + r);
-                        appendDiag("dexDisplayCreate on monitor " + monitorId + ": " + r);
-                        int id = -1;
-                        if (r.startsWith("ok ")) {
-                            try {
-                                id = Integer.parseInt(r.substring(3).trim());
-                            } catch (NumberFormatException ignored) {
-                            }
-                        }
+                        Log.i("FlipEx", "dexDisplayCreate(" + monitorId + ", " + (useA11y ? "accessibility" : "app") + "): " + r);
+                        appendDiag("dexDisplayCreate on monitor " + monitorId + " ("
+                                + (useA11y ? "accessibility" : "app overlay") + "): " + r);
+                        int id = parseOk(r);
                         if (id >= 0) {
+                            vdWindow = useA11y ? DexSettings.WINDOW_A11Y : DexSettings.WINDOW_APP;
                             vdMonitor = monitorId;
                             vdId = id;
                             vdError = "";
+                            handler.post(FoldWatcherService.this::applyDexVisibility);
                         } else {
                             vdError = r;
                             handler.post(() -> stopVirtualDesktop("create failed"));
                         }
-                    });
+                    }, "FlipEx-dexDisplay").start();
                 }
 
                 @Override
@@ -389,11 +412,58 @@ public class FoldWatcherService extends Service
                 }
             });
             if (!shown) {
-                vdError = "FlipEx needs \"Display over other apps\"";
+                vdError = useA11y ? "the accessibility window couldn't be added"
+                        : "FlipEx needs \"Display over other apps\"";
                 appendDiag("giveOwnDesktop(" + monitorId + "): couldn't show the DeX window: " + vdError);
                 ownDesktopGiven.remove(monitorId);
             }
         });
+    }
+
+    /**
+     * Main thread. The virtual display is always unlocked, so while the phone is locked its picture
+     * comes off the monitor: FlipEx's lock cover is an app overlay that Settings can hide, and the
+     * shell layer and accessibility window aren't hidden by anything else. The app overlay needs
+     * nothing: Android already shows the phone's lock screen on the monitor over it.
+     */
+    private void applyDexVisibility() {
+        boolean show = !locked;
+        if (vdWindow == DexSettings.WINDOW_SHELL) {
+            bg.execute(() -> Log.i("FlipEx", "DeX layer " + Shell.dexScreenSetVisible(show)));
+        } else if (vdWindow == DexSettings.WINDOW_A11Y) {
+            dexScreen.setVisible(show);
+        }
+    }
+
+    /**
+     * Bg thread. Asks the shell process to put the DeX picture on the monitor (a SurfaceFlinger
+     * layer, see ShellDexLayer) and create the virtual display behind it. False if it can't:
+     * the caller then uses a window of FlipEx's own.
+     */
+    private boolean startShellWindow(int monitorId, int w, int h, int dpi) {
+        String st = Shell.dexScreenShow(monitorId, w, h, dpi, DexSettings.DEX_DISPLAY_NAME);
+        Log.i("FlipEx", "shell DeX window on " + monitorId + ": " + st);
+        appendDiag("dexScreenShow on monitor " + monitorId + " (shell window): " + st);
+        int id = parseOk(st);
+        if (id < 0) {
+            vdError = st;
+            return false;
+        }
+        vdWindow = DexSettings.WINDOW_SHELL;
+        vdMonitor = monitorId;
+        vdId = id;
+        vdError = "";
+        handler.post(this::applyDexVisibility);  // started while locked: keep it off the monitor
+        return true;
+    }
+
+    private static int parseOk(String r) {
+        if (r == null || !r.startsWith("ok ")) return -1;
+        try {
+            return Integer.parseInt(r.substring(3).trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     /**
@@ -403,14 +473,20 @@ public class FoldWatcherService extends Service
     private void stopVirtualDesktop(String why) {
         int mon = vdMonitor >= 0 ? vdMonitor : dexScreen.displayId();
         boolean had = vdId >= 0 || dexScreen.isShowing();
+        int vdWindowWas = vdWindow;
+        vdWindow = -1;
         vdId = -1;
         vdMonitor = -1;
         dexScreen.hide();
         if (mon >= 0) ownDesktopGiven.remove(mon);
         if (!had) return;
         Log.i("FlipEx", "virtual display stopped: " + why);
+        boolean shellWindow = vdWindowWas == DexSettings.WINDOW_SHELL;
         bg.execute(() -> {
-            if (Shell.ready()) appendDiag("virtual display stopped (" + why + "): " + Shell.dexDisplayRelease());
+            if (Shell.ready()) {
+                appendDiag("virtual display stopped (" + why + "): "
+                        + (shellWindow ? Shell.dexScreenHide() : Shell.dexDisplayRelease()));
+            }
             pinnedTo = -1;
         });
         repinMice();
@@ -738,7 +814,9 @@ public class FoldWatcherService extends Service
         }
         if (!stripOn) strip.hide();
         int id = ext.getDisplayId();
+        boolean checkHiding = vdId >= 0 && ++hideCheckTick % 3 == 0;
         bg.execute(() -> {
+            if (checkHiding) checkOverlayHiding();
             String got = RunningApps.raw(id);
             windowNewArrivals(got, id);
             if (!stripOn) return;
@@ -748,6 +826,25 @@ public class FoldWatcherService extends Service
                 if (running && now != null && now.getDisplayId() == id && !locked) strip.update(now, raw);
             });
         });
+    }
+
+    /**
+     * Bg thread, every few seconds while the virtual display is up. Logs when another app's
+     * window starts or stops hiding app overlays (Settings, permission and install screens do).
+     * While one does, Android hides the DeX window on the monitor and the monitor mirrors the
+     * phone. FlipEx's own window gets no event for that, so only the window list shows it.
+     */
+    private void checkOverlayHiding() {
+        String out = Shell.exec("dumpsys window visible | sed -n '/Hiding System Alert Windows/,$p'"
+                + " | grep -E '^  #' | head -3");
+        if (out == null) return;
+        String now = out.trim();
+        if (now.equals(hidingOverlays)) return;
+        hidingOverlays = now;
+        String msg = now.isEmpty() ? "overlays shown again (DeX window back on the monitor)"
+                : "overlays hidden by: " + now.replace('\n', ' ');
+        Log.i("FlipEx", msg);
+        appendDiag(msg);
     }
 
     /** Covers the DeX screen and releases mice while locked; undoes both on unlock. */
@@ -762,6 +859,7 @@ public class FoldWatcherService extends Service
         }
         if (nowLocked == locked) return;
         locked = nowLocked;
+        applyDexVisibility();
         Log.i("FlipEx", locked ? "locked: DeX screen covered" : "unlocked: DeX screen uncovered");
         if (locked) {
             bg.execute(() -> {
@@ -778,6 +876,14 @@ public class FoldWatcherService extends Service
      * a display or input device; released when no external display is left.
      */
     private void repinMice() {
+        repinMice(false);
+    }
+
+    /**
+     * force: pin again even if the target hasn't changed. A mouse that connects after the pin
+     * (a dock's USB hub comes up a few seconds after its HDMI) needs its own association.
+     */
+    private void repinMice(boolean force) {
         bg.execute(() -> {
             if (!Shell.ready() || locked) return;
             Display dex = DexSettings.dexDisplay(this);
@@ -788,12 +894,14 @@ public class FoldWatcherService extends Service
             // FlipEx's own virtual display is always a desktop (even before its home appears,
             // e.g. while Android asks which home to use there).
             if (target >= 0 && !DexSettings.isFlipExDisplay(dex) && !hasHome(target)) target = -1;
-            if (target == pinnedTo) return;
+            if (target == pinnedTo && !(force && target >= 0)) return;
             if (target < 0 && pinnedTo < 0) return;
             String r = Shell.pinMice(target);
             Log.i("FlipEx", "pinMice(" + target + "): " + r);
             appendDiag("pinMice(" + target + "): " + r);
-            pinnedTo = target;
+            // Nothing pinned yet (no mouse connected): don't remember the target, so the next
+            // repin (the 2.5 s / 7 s ones after a monitor connects) tries again.
+            pinnedTo = target >= 0 && r != null && r.startsWith("pinned [] ") ? -1 : target;
         });
     }
 
@@ -809,7 +917,7 @@ public class FoldWatcherService extends Service
 
     @Override
     public void onInputDeviceAdded(int deviceId) {
-        repinMice();
+        repinMice(true);
     }
 
     @Override
@@ -839,6 +947,7 @@ public class FoldWatcherService extends Service
             if (!Shell.ready()) return;
             String out = Shell.exec("date; echo display=" + displayId
                     + "; dumpsys display | grep -m3 -E 'mDisplayId=" + displayId + "|type EXTERNAL|type VIRTUAL'"
+                    + " | cut -c1-300"  // the full lines list every display mode and filled the log
                     + "; wm shell dump | grep -E 'inDesktopWindowing|desktopExternalDisplayId|Display #|numOfDesks|activeDesk|Desk #|freeformTasksInZOrder|Desk ID='");
             if (out == null) return;
             java.io.File file = new java.io.File(getFilesDir(), "dex-diag.txt");
@@ -877,6 +986,7 @@ public class FoldWatcherService extends Service
 
     @Override
     public void onDisplayRemoved(int displayId) {
+        appendDiag("display " + displayId + " removed" + (displayId == vdMonitor ? " (the DeX monitor)" : ""));
         // The monitor showing FlipEx's virtual display, or that display itself, went away.
         if (displayId == vdMonitor || displayId == vdId || displayId == dexScreen.displayId()) {
             stopVirtualDesktop("display " + displayId + " removed");
@@ -890,6 +1000,10 @@ public class FoldWatcherService extends Service
 
     @Override
     public void onDisplayChanged(int displayId) {
+        // The shell's DeX layer isn't managed by the window manager: re-fit it to the monitor.
+        if (displayId == vdMonitor && vdWindow == DexSettings.WINDOW_SHELL) {
+            bg.execute(() -> Log.i("FlipEx", "DeX layer re-fit: " + Shell.dexScreenUpdate()));
+        }
         // An HDMI monitor is added switched off and enabled a moment later; it only shows up as
         // a monitor then, so give it its own desktop on that first change too.
         if (!ownDesktopGiven.contains(displayId)) bg.execute(() -> giveOwnDesktop(displayId));
@@ -910,7 +1024,7 @@ public class FoldWatcherService extends Service
         if (dexScreen != null && (dexScreen.isShowing() || vdId >= 0)) {
             dexScreen.hide();
             vdId = -1;
-            bg.execute(() -> Log.i("FlipEx", "session ended: " + Shell.dexDisplayRelease()));
+            bg.execute(() -> Log.i("FlipEx", "session ended: " + Shell.dexScreenHide()));  // also releases the display
         }
         Shell.removeListener(this);
         if (pinnedTo >= 0) bg.execute(() -> Shell.pinMice(-1));

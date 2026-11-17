@@ -56,4 +56,18 @@ interface IShellService {
     String dexDisplayCreate(in Surface surface, int width, int height, int dpi, String name, IBinder owner) = 16;
     // Releases the virtual display (if any) and every mouse pin made by this service.
     String dexDisplayRelease() = 17;
+
+    // The DeX picture on the monitor as a SurfaceFlinger layer owned by this shell process
+    // (see ShellDexLayer): Android's "hide app overlays while Settings is open" can't touch it.
+    // Creates the virtual display rendering into it. Returns "ok <displayId>" or "error <why>";
+    // dexScreenState() says the same, or "none".
+    String dexScreenShow(int monitorId, int width, int height, int dpi, String name, IBinder owner) = 18;
+    String dexScreenState() = 19;
+    // Removes the window and releases the virtual display and mouse pins.
+    String dexScreenHide() = 20;
+    // Re-fits the layer to the monitor after it changed (resolution, layer stack).
+    String dexScreenUpdate() = 21;
+    // Hides the layer while the phone is locked (the monitor then shows the phone's lock screen)
+    // and shows it again on unlock. The virtual display keeps running.
+    String dexScreenSetVisible(boolean visible) = 22;
 }
