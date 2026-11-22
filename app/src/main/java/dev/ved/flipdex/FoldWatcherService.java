@@ -399,6 +399,7 @@ public class FoldWatcherService extends Service
                             vdId = id;
                             vdError = "";
                             handler.post(FoldWatcherService.this::applyDexVisibility);
+                            afterDexScreenUp();
                         } else {
                             vdError = r;
                             handler.post(() -> stopVirtualDesktop("create failed"));
@@ -453,8 +454,25 @@ public class FoldWatcherService extends Service
         vdMonitor = monitorId;
         vdId = id;
         vdError = "";
-        handler.post(this::applyDexVisibility);  // started while locked: keep it off the monitor
+        // The layer comes up visible. Started while locked (e.g. folded, before unlocking on the
+        // cover screen): take it off the monitor here and now. applyDexVisibility runs on this
+        // same thread, behind Start DeX's wait for the home, which left DeX usable for seconds.
+        if (km != null && km.isKeyguardLocked()) {
+            appendDiag("phone locked at start: DeX layer " + Shell.dexScreenSetVisible(false));
+        }
+        handler.post(this::applyDexVisibility);
+        afterDexScreenUp();
         return true;
+    }
+
+    /**
+     * Any thread, once FlipEx's DeX screen exists. Samsung gives a maximized app no title bar on it:
+     * maximize turns a window into a full-screen app, and full-screen apps keep a title bar only
+     * on Samsung's own DeX monitors (which a virtual display can't be). Samsung's handle for
+     * full-screen apps does work there, so turn it on for the session. Undone in stopVirtualDesktop.
+     */
+    private void afterDexScreenUp() {
+        bg.execute(() -> appendDiag(DexSettings.enableFullscreenHandle(this)));
     }
 
     private static int parseOk(String r) {
@@ -487,6 +505,8 @@ public class FoldWatcherService extends Service
                 appendDiag("virtual display stopped (" + why + "): "
                         + (shellWindow ? Shell.dexScreenHide() : Shell.dexDisplayRelease()));
             }
+            String handle = DexSettings.restoreFullscreenHandle(this);
+            if (handle != null) appendDiag(handle);
             pinnedTo = -1;
         });
         repinMice();

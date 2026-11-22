@@ -207,6 +207,37 @@ public final class DexSettings {
         p.edit().remove(KEY_MIRROR_SAVED).apply();
     }
 
+    /**
+     * Samsung's "Show multi window menu with 1 window" (global, 0/1): a handle at the top of
+     * full-screen apps whose menu turns them back into pop-up windows. FlipEx turns it on while
+     * its DeX screen is up: on that screen a maximized app is full screen and has no title bar.
+     */
+    static final String FULLSCREEN_HANDLE = "multi_window_menu_in_full_screen";
+    private static final String KEY_HANDLE_SAVED = "fullscreen_handle_saved";
+
+    /** Turns the handle on and saves the earlier value once. Returns a line for the diagnostics. */
+    static String enableFullscreenHandle(Context c) {
+        String now = get(c, FULLSCREEN_HANDLE);
+        if ("?".equals(now)) return "full-screen handle: can't read " + FULLSCREEN_HANDLE;
+        if ("1".equals(now)) return "full-screen handle already on";
+        android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
+        if (!p.contains(KEY_HANDLE_SAVED)) {
+            p.edit().putString(KEY_HANDLE_SAVED, now == null ? "null" : now).commit();
+        }
+        boolean ok = put(c, FULLSCREEN_HANDLE, "1");
+        return "full-screen handle " + now + " -> 1 " + (ok ? "ok" : "failed");
+    }
+
+    /** Puts the handle back to what it was before FlipEx turned it on. Null if FlipEx didn't. */
+    static String restoreFullscreenHandle(Context c) {
+        android.content.SharedPreferences p = c.getSharedPreferences(PREFS, 0);
+        String saved = p.getString(KEY_HANDLE_SAVED, null);
+        if (saved == null) return null;
+        boolean ok = put(c, FULLSCREEN_HANDLE, "null".equals(saved) ? null : saved);
+        if (ok) p.edit().remove(KEY_HANDLE_SAVED).apply();
+        return "full-screen handle restored to " + saved + (ok ? "" : " (failed, will retry)");
+    }
+
     public static boolean isVirtualDisplayOn(Context c) {
         String v = get(c, OVERLAY);
         if ("?".equals(v)) return c.getSharedPreferences(PREFS, 0).getBoolean("overlay", false);
@@ -302,6 +333,7 @@ public final class DexSettings {
         }
         boolean features = !Shell.ready() || setDexFeatures(c, false);
         c.getSharedPreferences(PREFS, 0).edit().remove(KEY_CONTENT_MODE_ROUTE).apply();  // back to auto
+        restoreFullscreenHandle(c);
         return setVirtualDisplay(c, false) & setDesktop(c, false) & features;
     }
 
